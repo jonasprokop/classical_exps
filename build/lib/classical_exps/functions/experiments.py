@@ -495,7 +495,7 @@ def get_preferred_position(
         
                 try :
                     ## Create a dataset for the neuron if it doen't already exists
-                    data = [x0_opt,y0_opt,error]
+                    data = [x0_opt,y0_opt,error,sigma_x_opt, sigma_y_opt]
                     group.create_dataset(f"neuron_{id}", data=data)
 
                 except ValueError :

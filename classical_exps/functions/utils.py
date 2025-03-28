@@ -6,6 +6,10 @@ import imagen
 from imagen.image import BoundingBox
 import h5py
 import torch.nn as nn
+import os
+import shutil
+import traceback
+import matplotlib.pyplot as plt
 
 
 #############################################################
@@ -48,10 +52,13 @@ def clear_group(h5_file, group_path):
 
             ## Check if the group exists
             if group_path in file:
+                print("Before deletion:", list(file.keys()))
 
                 del file[group_path]
 
                 print(f"Group '{group_path}' cleared successfully.")
+                
+                print("After deletion:", list(file.keys()))
 
             else:
                 print(f"Group '{group_path}' did not exist in the HDF5 file.")
@@ -545,3 +552,77 @@ def execute_function(func_name, params):
     
     # Call the function with the parameters
     func(**params)
+
+# If your h5 files breaks during saving you can copy out the problematic group 
+def advanced_h5_repair(filepath, problematic_group_path):
+    try:
+        # Create backup
+        backup_filepath = filepath + '.original_backup'
+        shutil.copy(filepath, backup_filepath)
+        print(f"Created backup at {backup_filepath}")
+
+        # Recovered file path
+        recovered_filepath = filepath + '.recovered'
+
+        # Detailed logging of what's happening
+        with h5py.File(filepath, 'r') as original_file:
+            with h5py.File(recovered_filepath, 'w') as new_file:
+                # Recursive deep copy function with extensive error handling
+                def deep_copy(source_obj, dest_parent, full_path=''):
+                    try:
+                        current_path = full_path
+                        
+                        # Skip the problematic group
+                        if current_path == problematic_group_path:
+                            print(f"Skipping problematic group: {current_path}")
+                            return
+                        
+                        if isinstance(source_obj, h5py.Group):
+                            # Create group if it doesn't exist
+                            if current_path and current_path not in dest_parent:
+                                dest_group = dest_parent.create_group(os.path.basename(current_path))
+                            else:
+                                dest_group = dest_parent
+                            
+                            # Copy group attributes
+                            for attr_name, attr_value in source_obj.attrs.items():
+                                dest_group.attrs[attr_name] = attr_value
+                            
+                            # Recursively copy children
+                            for key, obj in source_obj.items():
+                                child_path = f"{current_path}/{key}" if current_path else key
+                                deep_copy(obj, dest_group, child_path)
+                        
+                        elif isinstance(source_obj, h5py.Dataset):
+                            # Copy dataset with data and attributes
+                            try:
+                                dataset_name = os.path.basename(current_path)
+                                dest_dataset = dest_parent.create_dataset(
+                                    dataset_name, 
+                                    data=source_obj[()],
+                                    dtype=source_obj.dtype
+                                )
+                                
+                                # Copy dataset attributes
+                                for attr_name, attr_value in source_obj.attrs.items():
+                                    dest_dataset.attrs[attr_name] = attr_value
+                            
+                            except Exception as dataset_error:
+                                print(f"Error copying dataset {current_path}: {dataset_error}")
+                                traceback.print_exc()
+                    
+                    except Exception as copy_error:
+                        print(f"Error in deep copy for {current_path}: {copy_error}")
+                        traceback.print_exc()
+
+                # Start the deep copy from the root
+                deep_copy(original_file, new_file)
+
+        print(f"Recovered file created at {recovered_filepath}")
+        return recovered_filepath
+
+    except Exception as main_error:
+        print(f"Comprehensive repair failed: {main_error}")
+        traceback.print_exc()
+        return None
+    

@@ -21,3 +21,5 @@ experiments_convnext/
 experiments_data/convnext/*
 
 /surroundmodulation/analyses.py
+/results
+run_pipeline/config/configuration.py

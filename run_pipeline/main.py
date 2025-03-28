@@ -4,7 +4,7 @@
 ##################################################################################################
 
 ## Import the config objects
-from config import experiments_config, analyses_config, execute_function
+from run_pipeline.config import *
 
 ## Perform the experiments
 for exp in experiments_config :
