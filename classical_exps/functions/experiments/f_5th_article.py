@@ -40,16 +40,18 @@ def get_all_grating_parameters_with_modulator(
     all_neurons_model,
     neuron_ids,
     overwrite=False,
-    modulator_orientations = np.linspace(-np.pi/2, np.pi/2, 8, endpoint=False), 
+    modulator_orientations = np.linspace(-np.pi/2, np.pi/2, 4, endpoint=False), 
     modulator_spatial_frequencies_multiplicators = [0.5],
     modulator_phases = np.linspace(0, 2*np.pi, 20, endpoint=False),
     carrier_contrast = 0.75,
+    modulator_contrast=1,
     contrast=1,
     img_res=[93, 93],
     pixel_min=-1.7876,
     pixel_max=2.1919,
     device=None,
     size=2.67,
+    save_stimuli=True
 ):
     '''
     Function to first determine preferred grating parameters using find_preferred_grating_parameters_full_field
@@ -144,12 +146,46 @@ def get_all_grating_parameters_with_modulator(
                     y = -get_offset_in_degr(y_pix, img_res[0], size)
                 )())
 
-                carrier = carrier * carrier_contrast
+                if save_stimuli:
+                    carrier_np = carrier.squeeze().detach().cpu().numpy()
+                    carrier_min_val, carrier_max_val = carrier_np.min(), carrier_np.max()
+                    directory = "/project/results/modulation/carriers"  + "/" + neuron + "/"
+                    os.makedirs(directory, exist_ok=True)
+                    fig, ax = plt.subplots()
+                    im = ax.imshow(carrier_np.squeeze(),  cmap='gray', vmin=carrier_min_val, vmax=carrier_max_val)
+                    fig.colorbar(im, ax=ax)
+                    plt.savefig(directory + f"{neuron}_carrier_original_output.png")
+                    plt.close()
+            
 
-                directory = "/project/results/modulation/carriers"  + "/" + neuron + "/"
-                os.makedirs(directory, exist_ok=True)
-                plt.imsave(directory + f"{neuron}_carrier.png", 
-                    carrier.squeeze(), cmap='gray', format='png')
+                # carrier = normalize_image_to_01(carrier)
+
+                carrier = rescale(carrier, 0,1,-1,1)
+                
+                if save_stimuli:
+                    carrier_np = carrier.squeeze().detach().cpu().numpy()
+                    carrier_min_val, carrier_max_val = carrier_np.min(), carrier_np.max()
+                    directory = "/project/results/modulation/carriers"  + "/" + neuron + "/"
+                    os.makedirs(directory, exist_ok=True)
+                    fig, ax = plt.subplots()
+                    im = ax.imshow(carrier_np.squeeze(),  cmap='gray', vmin=carrier_min_val, vmax=carrier_max_val)
+                    fig.colorbar(im, ax=ax)
+                    plt.savefig(directory + f"{neuron}_carrier_normalised.png")
+                    plt.close()
+            
+
+                carrier = carrier_contrast * carrier
+
+                if save_stimuli:
+                    carrier_np = carrier.squeeze().detach().cpu().numpy()
+                    carrier_min_val, carrier_max_val = carrier_np.min(), carrier_np.max()
+                    directory = "/project/results/modulation/carriers"  + "/" + neuron + "/"
+                    os.makedirs(directory, exist_ok=True)
+                    fig, ax = plt.subplots()
+                    im = ax.imshow(carrier_np.squeeze(),  cmap='gray', vmin=carrier_min_val, vmax=carrier_max_val)
+                    fig.colorbar(im, ax=ax)
+                    plt.savefig(directory + f"{neuron}_carrier_apllied_contrast.png")
+                    plt.close()
             
 
                 for relative_ori in modulator_orientations:
@@ -175,26 +211,62 @@ def get_all_grating_parameters_with_modulator(
                                 y = -get_offset_in_degr(y_pix, img_res[0], size)
                                 )())
 
-                                grating = carrier * modulator
-
-                                directory = "/project/results/modulation/modulators"  + "/" + neuron + "/"
-                                os.makedirs(directory, exist_ok=True)
-                                plt.imsave(directory + f"{neuron}_modulator_relative_ori_{relative_ori}_relative_mod_sf_{modulator_spatial_frequencies_multiplicator}_mod_phase_{mod_phase}.png", 
-                                    modulator.squeeze(), cmap='gray', format='png')
                                 
+                                if save_stimuli:
+                                    modulator_np = modulator.squeeze().detach().cpu().numpy()
+                                    modulator_min_val, modulator_max_val = modulator_np.min(), modulator_np.max()
+                                    fig, ax = plt.subplots()
+                                    im = ax.imshow(modulator_np.squeeze(),  cmap='gray', vmin=modulator_min_val, vmax=modulator_max_val)
+                                    directory = "/project/results/modulation/modulators"  + "/" + neuron + "/"
+                                    os.makedirs(directory, exist_ok=True)
+                                    fig.colorbar(im, ax=ax)
+                                    plt.savefig(directory + f"{neuron}_modulator_{relative_ori}_{mod_sf}_{mod_phase}_original.png")
+                                    plt.close()
 
-                                directory = "/project/results/modulation/gratings"  + "/" + neuron + "/"
-                                os.makedirs(directory, exist_ok=True)
-                                plt.imsave(directory + f"{neuron}_grating_relative_ori_{relative_ori}_relative_mod_sf_{modulator_spatial_frequencies_multiplicator}_mod_phase_{mod_phase}.png", 
-                                    grating.squeeze(), cmap='gray', format='png')
+                                modulator = rescale(modulator,0,1,0,1)
 
+                                if save_stimuli:
+                                    modulator_np = modulator.squeeze().detach().cpu().numpy()
+                                    modulator_min_val, modulator_max_val = modulator_np.min(), modulator_np.max()
+                                    fig, ax = plt.subplots()
+                                    im = ax.imshow(modulator_np.squeeze(),  cmap='gray', vmin=modulator_min_val, vmax=modulator_max_val)
+                                    directory = "/project/results/modulation/modulators"  + "/" + neuron + "/"
+                                    os.makedirs(directory, exist_ok=True)
+                                    fig.colorbar(im, ax=ax)
+                                    plt.savefig(directory + f"{neuron}_modulator_{relative_ori}_{mod_sf}_{mod_phase}_rescaled.png")
+                                    plt.close()
+
+                                grating = ((carrier * modulator)/2)+0.5
+                                
                                 grating = grating.reshape(1,1,*img_res).to(device)
 
-                                ## Rescale because the output of imagen has values from 0 to 1 and we want 
-                                ## values from pixel_min to pixel_max (be carful to use contrast on centered values)
-                                grating = rescale(grating, 0, 1, -1, 1)*contrast
-                                grating = rescale(grating, -1, 1, pixel_min, pixel_max)
+                                if save_stimuli:
+                                    grating_np_resulting = grating.squeeze().detach().cpu().numpy()
+                                    grating_min_val_resulting, grating_max_val_resulting = grating_np_resulting.min(), grating_np_resulting.max()
+                                    fig, ax = plt.subplots()
+                                    im = ax.imshow(grating_np_resulting.squeeze(),  cmap='gray', vmin=grating_min_val_resulting, vmax=grating_max_val_resulting)
+                                    fig.colorbar(im, ax=ax)
+                                    directory = "/project/results/modulation/gratings"  + "/" + neuron + "/"
+                                    os.makedirs(directory, exist_ok=True)
+                                    plt.savefig(directory + f"{neuron}_grating_{relative_ori}_{mod_sf}_{mod_phase}_original.png")
+                                    plt.close()
 
+                                
+                                grating_np = grating.squeeze().detach().cpu().numpy()
+                                grating_min_val, grating_max_val = grating_np.min(), grating_np.max()
+
+                                grating = rescale(grating, grating_min_val, grating_max_val, pixel_min, pixel_max)
+
+                                if save_stimuli:
+                                    grating_np_resulting = grating.squeeze().detach().cpu().numpy()
+                                    grating_min_val_resulting, grating_max_val_resulting = grating_np_resulting.min(), grating_np_resulting.max()
+                                    fig, ax = plt.subplots()
+                                    im = ax.imshow(grating_np_resulting.squeeze(),  cmap='gray', vmin=grating_min_val_resulting, vmax=grating_max_val_resulting)
+                                    fig.colorbar(im, ax=ax)
+                                    directory = "/project/results/modulation/gratings"  + "/" + neuron + "/"
+                                    os.makedirs(directory, exist_ok=True)
+                                    plt.savefig(directory + f"{neuron}_grating_{relative_ori}_{mod_sf}_{mod_phase}_target_scale.png")
+                                    plt.close()
 
                                 # Evaluate response
                                 resp = single_model(grating)

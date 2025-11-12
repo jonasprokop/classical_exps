@@ -47,7 +47,9 @@ def get_size_tuning_curves(
     size = 2.67,
     img_res = [93,93],
     neg_val = True,     #TODO never used
-    compute_annular = True
+    compute_annular = True,
+    neuron = "",
+    contrast_keyword="",
     ):
     
     ''' This function is a size tuning function that makes the size of circular and annular grating images vary 
@@ -87,6 +89,9 @@ def get_size_tuning_curves(
                 
                 - annular_tuning_curve   : An array containing the responses for every surround stimulus minus the response to gray image
     '''
+
+    grating_images_for_panel = []  
+    grating_radii_for_panel = []  
 
     ## Select device
     if device==None:
@@ -135,14 +140,24 @@ def get_size_tuning_curves(
                                 x = get_offset_in_degr(x_pix, img_res[1], size[1]), 
                                 y = -get_offset_in_degr(y_pix, img_res[0], size[0]))())
             
+            
             ## Add the gray background to the circular stimulus
             grating_center = grating_center * center_mask
 
             ## Change the contrast for the circle
             grating_center *= contrast
-            
+        
+
             ## Convert to the right shape for the model
+            # fixed version
             grating_center = rescale(grating_center,-1,1,pixel_min,pixel_max).reshape(1,*img_res).to(device)
+
+            grating_images_for_panel.append(grating_center.cpu().numpy().squeeze())
+            grating_radii_for_panel.append(radius)
+
+            
+            # ## Convert to the right shape for the model
+            # grating_center = rescale(grating_center,-1,1,pixel_min,pixel_max).reshape(1,*img_res).to(device)
 
 
             ## Save responses for this radius, substract the gray response
@@ -196,7 +211,38 @@ def get_size_tuning_curves(
                 else : 
                     ## Allow negative values
                     annular_tuning_curve[i]  = single_model(grating_ring) - gray_resp
-                   
+
+
+    # radii and responses arrays
+    radii = np.array(radii)
+    responses = np.array(circular_tuning_curve.cpu())
+
+    # Define your "informative" range
+    min_radius = 0.1 
+    max_radius = 2.0
+
+    # Filter
+    valid_indices = np.where((radii >= min_radius) & (radii <= max_radius))[0]
+
+    # Sample n points evenly from the filtered indices
+    n_samples = 12
+    if len(valid_indices) > n_samples:
+        sampled_indices = valid_indices[np.linspace(0, len(valid_indices)-1, n_samples, dtype=int)]
+    else:
+        sampled_indices = valid_indices
+
+    # Pick radii and images
+    radii_sampled = radii[sampled_indices]
+    images_sampled = [grating_images_for_panel[i] for i in sampled_indices]
+
+    plot_size_tuning_gratings(
+        neuron=f"{neuron}", 
+        grating_images=images_sampled,
+        radii=radii_sampled,
+        n_samples=n_samples,
+        contrast_keyword=contrast_keyword,
+        contrast_level=contrast,
+    )
 
     if compute_annular :
         return circular_tuning_curve, annular_tuning_curve
@@ -290,7 +336,6 @@ def get_GSF_surround_AMRF(
 
 
     if annular_tuning_curve is not None :
-    
         return GSF, surround_extent, AMRF, SI, Ropt, Rsupp
     
     else :
@@ -913,3 +958,67 @@ def contrast_size_tuning_experiment_all_phases(
                 data = [GSFs_ratio]
                 subgroup_cst_results.create_dataset(name=neuron, data=data)
 
+
+def plot_size_tuning_gratings(
+    neuron,
+    grating_images,
+    radii=None,           # optional, used for titles
+    n_samples=12,         # number of images to show
+    save_dir="/project/results/facilitation/classical_contrast_size_tunning_grating_panels/",
+    contrast_keyword="",
+    contrast_level=1.0
+):
+    """
+    Show a grid of sampled gratings only, no curves.
+    All gratings share the same color scale (vmin/vmax) for consistent background tone.
+    Each grating gets its own colorbar.
+    """
+    import os
+    import numpy as np
+    import matplotlib.pyplot as plt
+    from mpl_toolkits.axes_grid1 import make_axes_locatable
+
+    os.makedirs(save_dir, exist_ok=True)
+
+    # --- Sample evenly across available gratings ---
+    n_total = len(grating_images)
+    n_samples = min(n_samples, n_total)
+    idxs = np.linspace(0, n_total - 1, n_samples, dtype=int)
+    sampled_gratings = [grating_images[i] for i in idxs]
+    sampled_radii = [radii[i] for i in idxs] if radii is not None else [None] * n_samples
+
+    # --- Determine shared color scale ---
+    all_min = min(img.min() for img in sampled_gratings)
+    all_max = max(img.max() for img in sampled_gratings)
+
+    # --- Grid layout ---
+    n_rows = 3
+    n_cols = int(np.ceil(n_samples / n_rows))
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(12, 9))
+    axes = axes.ravel()
+
+    for i, (ax, img, r) in enumerate(zip(axes, sampled_gratings, sampled_radii)):
+        im = ax.imshow(img, cmap='gray', origin='lower', vmin=all_min, vmax=all_max)
+        title = f"R={r:.2f}" if r is not None else ""
+        ax.set_title(title, fontsize=8)
+        ax.axis('off')
+
+        # --- individual colorbar ---
+        divider = make_axes_locatable(ax)
+        cax = divider.append_axes("right", size="5%", pad=0.05)
+        plt.colorbar(im, cax=cax, fraction=0.046, pad=0.04)
+
+    # Hide any empty axes if n_samples < n_rows * n_cols
+    for ax in axes[len(sampled_gratings):]:
+        ax.axis("off")
+
+    # --- Title and save ---
+    fig.suptitle(
+        f"Sampled size tuning – {neuron}, {contrast_keyword} contrast: {contrast_level*100:.0f}%",
+        fontsize=12
+    )
+    fig.tight_layout(rect=[0, 0, 1, 0.95])
+    save_path = os.path.join(save_dir, f"{neuron}_{contrast_keyword}.png")
+    plt.savefig(save_path, dpi=300)
+    plt.close(fig)
+    print(f"Saved panel to {save_path}")

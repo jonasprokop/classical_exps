@@ -531,6 +531,44 @@ def plot_img(img, pixel_min, pixel_max, title = None, name = None, showfig=True)
     if showfig==True:
         plt.show()
 
+def normalize_image_to_01(image):
+
+    if isinstance(image, torch.Tensor):
+        image = image.detach().cpu().numpy()
+    
+    # Convert to float32 for precision during processing
+    image = image.astype(np.float32)
+    
+    # Get the minimum and maximum intensity values of the image
+    min_val, max_val = image.min(), image.max()
+    mid_gray = (min_val + max_val) / 2
+    
+    # normalize to [0,1] range
+    normalized_image = (image - min_val) / (max_val - min_val)
+
+    return torch.tensor(normalized_image)
+
+
+def normalize_image_to11(image):
+
+    if isinstance(image, torch.Tensor):
+        image = image.detach().cpu().numpy()
+    
+    # Convert to float32 for precision during processing
+    image = image.astype(np.float32)
+    
+    # Get the minimum and maximum intensity values of the image
+    min_val, max_val = image.min(), image.max()
+    mid_gray = (min_val + max_val) / 2
+    
+    # normalize to [0,1] range
+    normalized_image = (image - min_val) / (max_val - min_val)
+
+    return torch.tensor(normalized_image)
+
+    
+
+
 #####################################################################
 ##### PART III : Random useful functions (coded by Luca Baroni) #####
 #####################################################################

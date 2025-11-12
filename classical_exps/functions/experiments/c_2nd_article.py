@@ -155,8 +155,14 @@ def get_orientation_tuning_curves_all_phase(
                 ## Change the contrast 
                 stimulus *= contrast
 
+
+
                 ## Convert to the right shape for the model
-                stimulus = rescale(stimulus,-1,1,pixel_min,pixel_max).reshape(1,*img_res).to(device)
+                # FIXED
+                stimulus = rescale(stimulus,0,1,pixel_min,pixel_max).reshape(1,*img_res).to(device)
+                
+                ## Convert to the right shape for the model
+                # stimulus = rescale(stimulus,-1,1,pixel_min,pixel_max).reshape(1,*img_res).to(device)
 
             else :
 

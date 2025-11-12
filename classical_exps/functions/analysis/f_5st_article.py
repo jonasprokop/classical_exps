@@ -36,34 +36,21 @@ def compute_sosi(orientations, responses):
         float: OSI value (0 to 1).
     """
 
-    averages = []
+    # We will normalise by total response energy
+    total_response = np.sum(responses)
 
-    # Go over unique orientations and average all phases (spatial frequency is constant)
-    unique_orientations = np.unique(orientations)
-    
-    for unique_orientation in unique_orientations:
-        indices_orientation = tuple(np.argwhere(orientations == unique_orientation)[0])
-        resposes_orientation = np.take(responses, indices_orientation)
-        average_response = np.average(resposes_orientation)
-        averages.append(average_response)
+    # Compute mean vector in the complex plane with doubled angles (2h as its the second harmonic of furrier transform, eg. direction inselective)
+    R = np.abs(np.sum(responses * np.exp(2j * orientations))) / total_response
 
+    # Compute second-order circular variance CV_{2h}, which is 1 - R
+    cv2h = 1 - R
 
-    # Average reponses
-    averaged_responses = np.array(averages)
+    # SOSI = 1 - CV_{2h}
+    sosi = 1 - cv2h
 
-    # Normalize responses
-    total_response = np.sum(averaged_responses)
-    
-    # Compute circular variance
-    vector_sum = np.sum(averaged_responses * np.exp(2j * (unique_orientations)))
-    R = np.abs(vector_sum) / total_response
-    cv = 1 - R
+    return sosi
 
-    # OSI is 1 - CV
-    return 1 - cv
-
-
-def compute_sosi_and_asses_by_permutation_test(relative_orientations, responses, num_permutations=1000, alpha=0.05):
+def compute_sosi_and_asses_by_permutation_test(relative_orientations, responses, num_permutations=2000, alpha=0.05):
     """
     Perform a Bonferroni-corrected permutation test to assess the significance of SOSI.
     
@@ -106,7 +93,7 @@ def compute_sosi_and_asses_by_permutation_test(relative_orientations, responses,
     return observed_sosi, p_value, p_value < corrected_alpha
 
 
-def plot_second_order_orientation_preferences(second_order_preferences, results_sosi, bins=5):
+def plot_second_order_orientation_preferences(second_order_preferences, results_sosi, bins=6):
     """
     Plot distribution of second-order orientation preferences counted based on sosi significance of neurons.
     
@@ -129,90 +116,31 @@ def plot_second_order_orientation_preferences(second_order_preferences, results_
     second_order_preferences_significant = second_order_preferences[is_significants == 1]
     second_order_preferences_insignificant = second_order_preferences[is_significants == 0]
     
-    # edges = [-90, 90]
+    edges = [-90, 90]
 
-    # # Create bin edges (2x for circular histogram)
-    # bin_edges = np.linspace(edges[0], edges[1], 2 * (bins - 1))
+    new_bin_count=bins*2-1
 
-    # def compute_histogram(data, bin_edges):
-    #     min_val, max_val = data.min(), data.max()
-    #     hist, _ = np.histogram(data, bins=bin_edges, range=(min_val, max_val), density=False)
-    #     hist[0] += hist[-1]  # Merge first and last bin
-    #     hist[-1] = hist[0]
-    #     return hist / len(second_order_preferences)  # Normalize
+    hist=np.linspace(*edges,new_bin_count)
+    merged_edges = np.array(list(hist[0:2]) + [hist[i]  for i in range(3, new_bin_count-2, 2)] + list(hist[new_bin_count-2:new_bin_count]))
 
-    # # Compute histograms in parallel
-    # hist_significant = compute_histogram(second_order_preferences_significant, bin_edges) 
-    # hist_insignificant = compute_histogram(second_order_preferences_insignificant, bin_edges) 
-    
-    # # # Merge symmetric bins
-    # merged_edges = []
-    # merged_hist_significant = []
-    # merged_hist_insignificant = []
 
-    # step = (len(bin_edges) - 2) // (bins - 1)
-
-    # merged_hist_significant.append(hist_significant[0])
-    # merged_hist_insignificant.append(hist_insignificant[0])
-
-    # for i in range(0, bins):
-    #     left_index = 1 + i * step
-    #     right_index = len(bin_edges) - 2 - i * step
-    #     merged_edges.append(bin_edges[left_index])
-    # for i in range(1, bins - 1):
-    #     merged_hist_significant.append(hist_significant[left_index] + hist_significant[right_index])
-    #     merged_hist_insignificant.append(hist_insignificant[left_index] + hist_insignificant[right_index])
-
-    # merged_hist_significant.append(hist_significant[-1])
-    # merged_hist_insignificant.append(hist_insignificant[-1])
-
-    # # Convert to numpy arrays
-    # merged_hist_significant = np.array(merged_hist_significant)
-    # merged_hist_insignificant = np.array(merged_hist_insignificant)
-    # merged_edges = np.array(merged_edges)
-
-    #     # Compute bin widths
-    # bar_widths = np.diff(bin_edges)
-
-    # # Initialize total_width list
-    # total_width = []
-
-    # # Keep the first width
-    # total_width.append(bar_widths[0])
-
-    # # Iterate through the middle widths and sum each pair
-    # i = 1  # Start from the second element
-    # while i < len(bar_widths) - 1:
-    #     total_width.append(bar_widths[i] + bar_widths[i + 1])
-    #     i += 2  # Move two steps forward
-
-    # merged_hist_significant = [
-    #     hist_significant[0],  # First bin
-    #     hist_significant[1] + hist_significant[2],  # Merging two middle bins
-    #     hist_significant[3] + hist_significant[4],  # Merging two middle bins
-    #     hist_significant[-1]  # Last bin
-    # ]
-
-    # merged_hist_insignificant = [
-    #     hist_insignificant[0],  
-    #     hist_insignificant[1] + hist_insignificant[2],  
-    #     hist_insignificant[3] + hist_insignificant[4],  
-    #     hist_insignificant[-1]
-    # ]
-
-    # # Convert lists to numpy arrays
-    # merged_hist_significant = np.array(merged_hist_significant)
-    # merged_hist_insignificant = np.array(merged_hist_insignificant)
-
-    # This aint ideal 
     merged_edges = np.array([-90, -67.5, -22.5, 22.5, 67.5, 90])
     total_width = np.diff(merged_edges)
 
-    hist_significant, edges = np.histogram(second_order_preferences_significant, bins=merged_edges)
+    hist_significant, _ = np.histogram(second_order_preferences_significant, bins=merged_edges)
     hist_insignificant, _ = np.histogram(second_order_preferences_insignificant, bins=merged_edges)
+
+    hist_significant[0] += hist_significant[-1] 
+    hist_significant[-1] = hist_significant[0]
+
+    hist_insignificant[0] += hist_insignificant[-1] 
+    hist_insignificant[-1] = hist_insignificant[0]
 
     hist_significant = (hist_significant / len(second_order_preferences))
     hist_insignificant = (hist_insignificant / len(second_order_preferences))
+
+    np.save("/project/results/modulation/second_order_preferences.npy", second_order_preferences)
+    np.save("/project/results/modulation/results_sosi.npy", results_sosi)
 
 
     print(hist_significant, hist_insignificant, merged_edges, total_width)
@@ -221,10 +149,7 @@ def plot_second_order_orientation_preferences(second_order_preferences, results_
     # Plot stacked histogram
     plt.figure(figsize=(8, 6))
     plt.bar(merged_edges[:-1], hist_significant, width=total_width, color='black', edgecolor='black', label='Significant', align='edge')
-    plt.bar(merged_edges[:-1], hist_insignificant, width=total_width, color='white', edgecolor='black', bottom=hist_significant, label='Insignificant', align='edge')
-
-    
-    
+    plt.bar(merged_edges[:-1], hist_insignificant, width=total_width, color='white', edgecolor='black', bottom=hist_significant, label='Insignificant', align='edge')    
     plt.title("Figure 3B: Distribution of Second-Order Orientation Preferences")
     plt.xlabel("Orientation Preference (degrees)")
     plt.ylabel("Proportion of Cells")
@@ -232,9 +157,8 @@ def plot_second_order_orientation_preferences(second_order_preferences, results_
     plt.savefig("/project/results/modulation/second_order_preferences.png")
     plt.close()
 
+
 def plot_sosi_histogram(results_sosi, bins=8):
-
-
     # Separete each of the values
     sosi_values = results_sosi[:, 0]
     p_values = results_sosi[:, 1]
@@ -266,26 +190,25 @@ def plot_sosi_histogram(results_sosi, bins=8):
     plt.savefig("/project/results/modulation/osi_distribution.png")
     plt.close() 
 
-def plot_circular_tunning_curves(raw_data, scaling_factor=100, neuron="0", show_only_averaged_phase=False):
+def plot_circular_tunning_curves(raw_data, scaling_factor=100, neuron="0", show_only_averaged_phase=True):
 
     # For each neuron plots its circlular tunning
 
     relative_orientations, responses = raw_data
 
-    if show_only_averaged_phase:
-        unique_orientations = np.unique(relative_orientations)
-        averaged_responses = []
-        averaged_relative_ori = []
-        for unique_orientation in unique_orientations:
-            indices_orientation = tuple(np.argwhere(relative_orientations == unique_orientation)[0])
-            resposes_orientation = np.take(responses, indices_orientation)
-            average_response = np.average(resposes_orientation)
-            averaged_responses.append(average_response)
-            averaged_relative_ori.append(unique_orientation)
-        averaged_responses = np.array(averaged_responses)
-        averaged_relative_ori = np.array(averaged_relative_ori)
-        responses = averaged_responses
-        relative_orientations = averaged_relative_ori
+    unique_orientations = np.unique(relative_orientations)
+    averaged_responses = []
+    averaged_relative_ori = []
+    for unique_orientation in unique_orientations:
+        indices_orientation = tuple(np.argwhere(relative_orientations == unique_orientation)[0])
+        resposes_orientation = np.take(responses, indices_orientation)
+        average_response = np.average(resposes_orientation)
+        averaged_responses.append(average_response)
+        averaged_relative_ori.append(unique_orientation)
+    averaged_responses = np.array(averaged_responses)
+    averaged_relative_ori = np.array(averaged_relative_ori)
+    responses = averaged_responses
+    relative_orientations = averaged_relative_ori
 
     # Scale the responses for better vsibility
     area = scaling_factor * responses
@@ -311,7 +234,7 @@ def plot_circular_tunning_curves(raw_data, scaling_factor=100, neuron="0", show_
 
 def save_underlaying_data(neuron_ids, second_order_preferences, results_sosi, all_responses, all_oris):
 
-    # For the untrusting we create whole results and stimulation overview file
+    # Create whole stim and results file
 
     observed_sosi, p_value, is_significant = results_sosi.T
     
@@ -380,10 +303,39 @@ def recreate_histograms_second_order_orientation(
             max_orientation = relative_orientations[max_response_idx]
             max_response = responses[max_response_idx]
 
+            unique_orientations = np.unique(relative_orientations)
+            vector_sums = []
+            averaged_relative_ori = []
+
+
+            for unique_orientation in unique_orientations:
+                indices = np.where(relative_orientations == unique_orientation)[0]
+
+                phases = mod_phases[indices]
+                ori_responses = responses[indices]
+
+                 # Compute vector in the complex plane with doubled angles (2h as its the second harmonic of furrier transform, eg. direction inselective)
+                vectors = np.exp(1j * phases)
+                
+                # Multiply unit vectors by response strengths (weighting)
+                weighted_vectors = ori_responses * vectors
+                vector_sum = np.sum(weighted_vectors)
+
+                # Save the magnitude of the sum (phase consistency weighted by strength)
+                vector_sums.append(np.abs(vector_sum))
+                averaged_relative_ori.append(unique_orientation)
+
+            # Output vectors as numpy arrays
+            responses = np.array(vector_sums)
+            relative_orientations = np.array(averaged_relative_ori)
+
             all_responses.append(responses)
             all_oris.append(relative_orientations)
 
-            observed_sosi, p_value, is_significant = compute_sosi_and_asses_by_permutation_test(relative_orientations, responses, num_permutations=num_permutations, alpha=alpha)
+            observed_sosi, p_value, is_significant = compute_sosi_and_asses_by_permutation_test(relative_orientations =relative_orientations, 
+                                                                                                 responses=responses,
+                                                                                                  num_permutations=num_permutations, alpha=alpha)           
+           
             results_sosi.append([observed_sosi, p_value, is_significant])
 
             second_order_preferences.append(max_orientation)

@@ -18,3 +18,5 @@ for res in analyses_config :
     params = res[1]
     result = execute_function(name_function, params)
 
+
+

@@ -1,25 +1,33 @@
-*.h5
-classical_exps/depth_info.pickle
-classical_exps/old_functions_3.py
-classical_exps/save_functions.py
-classical_exps/save_functions_2.py
-classical_exps/save_functions_3.py
-classical_exps/save_functions_4.py
-
-.env
-classical_exps/functions/__pycache__
-classical_exps/functions/__pycache__/*
-classical_exps/run_pipeline/__pycache__
-classical_exps/run_pipeline/__pycache__/*
+# Bytecode
 *.pyc
-classical_exps/objects/shareStim_NN13/
-classical_exps/plots/
-*.csv
-Luca/
-surroundmodulation/utils/gratings.py
-experiments_convnext/
-experiments_data/convnext/*
+__pycache__/
 
-/surroundmodulation/analyses.py
-/results
+# Packaging/build
+build/
+dist/
+*.egg-info/
+
+# Env
+.env
+
+# Data/outputs
+*.csv
+*.h5
+*.pickle
+
+# Local outputs
+results/
+classical_exps/plots/
+run_pipeline/objects/shareStim_NN13/**
+
+# Project scripts we don't want tracked
+classical_exps/save_functions*.py
+classical_exps/old_functions_3.py
+surroundmodulation/utils/gratings.py
 run_pipeline/config/configuration.py
+surroundmodulation/analyses.py
+
+# Experiments
+experiments_convnext/
+experiments_data/convnext/
+classical_exps/core/

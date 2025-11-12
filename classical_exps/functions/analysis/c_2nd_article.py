@@ -91,7 +91,12 @@ def plot_orientation_tuning_curve(
     plt.xlabel("Orientation shift compared to the preferred orientation (degrees)")
     plt.ylabel("Response")
     plt.legend()
-    plt.show()
+
+    directory = f"/project/results/selectivity_and_spatial_distribution/orientation_tunning_curve"  + "/" + neuron + "/"
+    os.makedirs(directory, exist_ok=True)
+    plt.savefig(directory + f"orietation_tunning_curve_{neuron_id}.png")
+    plt.close
+
 
 
 def orientation_tuning_results_1(
@@ -190,7 +195,12 @@ def orientation_tuning_results_1(
     plt.xlabel("Orientation shift compared to the preferred orientation (degrees)")
     plt.ylabel("Response")
     plt.legend()
-    plt.show()
+
+    directory = f"/project/results/selectivity_and_spatial_distribution/mean_orientation_tunning_curves"  + "/" + neuron + "/"
+    os.makedirs(directory, exist_ok=True)
+    plt.savefig(directory + f"orientation_tuning_results_1.png")
+    plt.close
+
 
     print()
     print(f"    > Random neurons :")
@@ -311,6 +321,13 @@ def orientation_tuning_results_2(
         plt.show()
 
 
+        directory = f"/project/results/selectivity_and_spatial_distribution/orientation_tunning_curve"  + "/" + neuron + "/"
+        os.makedirs(directory, exist_ok=True)
+        plt.savefig(directory + f"orientation_tuning_results_2.png")
+        plt.close
+
+
+
 def plot_ccss_curves(
     h5_file,
     neuron_id
@@ -368,6 +385,11 @@ def plot_ccss_curves(
         plt.legend()
 
         plt.show()
+
+        
+        directory = f"/project/results/selectivity_and_spatial_distribution/css_curves"  + "/" + neuron + "/"
+        os.makedirs(directory, exist_ok=True)
+        plt.savefig(directory + f"plot_ccss_curves.png")
         
 
 def ccss_results_1(
@@ -463,6 +485,11 @@ def ccss_results_1(
     plt.legend()
 
     plt.show()
+
+
+    directory = f"/project/results/selectivity_and_spatial_distribution/css_result_1"  + "/" + neuron + "/"
+    os.makedirs(directory, exist_ok=True)
+    plt.savefig(directory + f"ccss_results_1.png")
 
     
     print()

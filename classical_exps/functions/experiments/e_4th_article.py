@@ -173,11 +173,18 @@ def load_imgs(
             tex_img   = tex_imgs[i,j]
             noise_img = noise_imgs[i,j]
 
-            # ## Change the contrast and rescale
-            tex_img   = rescale(tex_img, min_val, max_val, -1, 1)*contrast
-            tex_img   = rescale(tex_img, -1, 1, pixel_min, pixel_max)
-            noise_img = rescale(noise_img, min_val, max_val, -1, 1)*contrast
-            noise_img = rescale(noise_img, -1, 1, pixel_min, pixel_max)
+             # ## Change the contrast and rescale
+             # FIXED
+            tex_img   = rescale(tex_img, min_val, max_val, 0, 1)*contrast
+            tex_img   = rescale(tex_img, 0, 1, pixel_min, pixel_max)
+            noise_img = rescale(noise_img, min_val, max_val, 0, 1)*contrast
+            noise_img = rescale(noise_img, 0, 1, pixel_min, pixel_max)
+            
+            # # ## Change the contrast and rescale
+            # tex_img   = rescale(tex_img, min_val, max_val, -1, 1)*contrast
+            # tex_img   = rescale(tex_img, -1, 1, pixel_min, pixel_max)
+            # noise_img = rescale(noise_img, min_val, max_val, -1, 1)*contrast
+            # noise_img = rescale(noise_img, -1, 1, pixel_min, pixel_max)
 
             ## Update the tensor
             tex_imgs[i,j]   = tex_img

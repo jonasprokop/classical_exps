@@ -111,7 +111,9 @@ def plot_scatter_hist(
     ax_histx.tick_params(axis="x", labelbottom=False)
     ax_histy.tick_params(axis="y", labelleft=False)
     
-    plt.show()
+    directory = f"/project/results/nature_and_interactions"  + "/" 
+    os.makedirs(directory, exist_ok=True)
+    plt.savefig(directory + f"scatter_histogram.png")
 
 
 def plot_size_tuning_curve(
@@ -162,7 +164,10 @@ def plot_size_tuning_curve(
     plt.ylabel('Response')
     plt.legend()
     plt.title(f"Size tuning curve of the Neuron {neuron_id}")
-    plt.show()
+
+    directory = f"/project/results/nature_and_interactions/size_tunning_curves"  + "/" 
+    os.makedirs(directory, exist_ok=True)
+    plt.savefig(directory + f"size_tunning_curve_{neuron_id}.png")
 
 
 def plot_contrast_response(
@@ -228,7 +233,9 @@ def plot_contrast_response(
     plt.ylabel("Response")
     plt.xscale('log')
 
-    plt.show()
+    directory = f"/project/results/nature_and_interactions/reponse_contrasts"  + "/" 
+    os.makedirs(directory, exist_ok=True)
+    plt.savefig(directory + f"response_contrast_{neuron_id}.png")
 
 
 def plot_contrast_size_tuning_curve(
@@ -289,7 +296,10 @@ def plot_contrast_size_tuning_curve(
 
     plt.legend(title='Contrast', title_fontsize='large')
     plt.title(title)
-    plt.show()
+
+    directory = f"/project/results/nature_and_interactions/contrast_size_tunning"  + "/" 
+    os.makedirs(directory, exist_ok=True)
+    plt.savefig(directory + f"contrast_size_tunning.png")
         
 
 def size_tuning_results_1(  
@@ -454,7 +464,9 @@ def size_tuning_results_2(
     plt.xticks(bins)
     plt.title(f"Distribution of the SI for the {len(all_SI)} neurons")
 
-    plt.show()
+    directory = f"/project/results/nature_and_interactions"  + "/" 
+    os.makedirs(directory, exist_ok=True)
+    plt.savefig(directory + f"distribution_of_si.png")
 
     print("--------------------------------------")
     print()

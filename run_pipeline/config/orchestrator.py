@@ -69,7 +69,7 @@ experiments_config = [
     # ['texture_noise_response_experiment', {'h5_file':h5_file, 'all_neurons_model':all_neurons_model, 'neuron_ids':neuron_ids, 'directory_imgs':directory_imgs, 'overwrite':overwrite, 'contrast':contrast, 'pixel_min':pixel_min, 'pixel_max':pixel_max, 'num_samples':num_samples, 'img_res':img_res, 'device':device}]
     # ['get_all_grating_parameters_with_modulator', {'h5_file':h5_file, 'all_neurons_model':all_neurons_model, 'neuron_ids':neuron_ids, 'overwrite':overwrite, 'contrast':contrast, 'img_res':img_res, 'pixel_min':pixel_min, 'pixel_max':pixel_max, 'device':device, 'size':size}],
     # ['get_orientation_contrast_stimulus', {'h5_file':h5_file, 'all_neurons_model':all_neurons_model, 'neuron_ids':neuron_ids, 'overwrite':overwrite, 'contrast':contrast, 'img_res':img_res, 'pixel_min':pixel_min, 'pixel_max':pixel_max, 'device':device, 'size':size}],
-    # ['get_surround_contrast_facilitation', {'h5_file':h5_file, 'all_neurons_model':all_neurons_model, 'neuron_ids':neuron_ids, 'overwrite':overwrite, 'img_res':img_res, 'pixel_min':pixel_min, 'pixel_max':pixel_max, 'device':device, 'size':size}],
+    ['get_surround_contrast_facilitation', {'h5_file':h5_file, 'all_neurons_model':all_neurons_model, 'neuron_ids':neuron_ids, 'overwrite':overwrite, 'img_res':img_res, 'pixel_min':pixel_min, 'pixel_max':pixel_max, 'device':device, 'size':size}],
 
     ]
 
@@ -140,12 +140,9 @@ analyses_config = [
     # ['texture_noise_response_results_1',  {'h5_file':h5_file, 'neuron_ids':neuron_ids, 'wanted_fam_order':wanted_fam_order}],
     # ['texture_noise_response_results_2',  {'h5_file':h5_file, 'neuron_ids':neuron_ids, 'wanted_fam_order':wanted_fam_order}],
     # ['texture_noise_response_results_3',  {'h5_file':h5_file, 'neuron_ids':neuron_ids}],
-    ['recreate_histograms_second_order_orientation',  {'h5_file':h5_file, 'neuron_ids':neuron_ids}],
+    # ['recreate_histograms_second_order_orientation',  {'h5_file':h5_file, 'neuron_ids':neuron_ids}],
     # ['recreate_plots_general_suppresion_index',  {'h5_file':h5_file, 'neuron_ids':neuron_ids}],
     # ['recreate_plots_results_article_7',  {'h5_file':h5_file, 'neuron_ids':neuron_ids}]
-
-    
-
 ]
 
 
