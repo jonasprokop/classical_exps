@@ -20,10 +20,12 @@ import h5py
 from scipy.optimize import curve_fit
 import time
 import cv2
+import json
 
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 from matplotlib.patches import Ellipse
 
@@ -49,7 +51,8 @@ def find_preferred_grating_parameters_full_field(
     pixel_min = -1.7876, #e.g:  (the lowest value encountered in the data we worked with)
     pixel_max =  2.1919, #e.g:  (the highest value encountered in the data we worked with)
     device = None,
-    size = 2.67,           
+    size = 2.67,         
+    neuron = "0",
     ):
 
     ''' 
@@ -84,6 +87,9 @@ def find_preferred_grating_parameters_full_field(
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
     single_model.to(device)
 
+    print(f"Jou J I did something")
+
+
     ## Evaluation mode
     single_model.eval()
 
@@ -94,12 +100,31 @@ def find_preferred_grating_parameters_full_field(
     ## Initialisation
     resp_max = 0
 
+
+    # Sample the stimuli: 6x6x6 grid
+    ori_idxs = sample_indices(len(orientations), 6)
+    sf_idxs  = sample_indices(len(spatial_frequencies), 6)
+    ph_idxs  = sample_indices(len(phases), 6)
+
+    # maps from full-grid index -> sampled-grid index (0..5), for O(1) lookup
+    ori_map = {int(oi): i for i, oi in enumerate(ori_idxs)}
+    sf_map  = {int(si): i for i, si in enumerate(sf_idxs)}
+    ph_map  = {int(pi): i for i, pi in enumerate(ph_idxs)}
+
+    # tiny capture buffer (CPU) for EXACT matrices fed to the model
+    stim_sampled = np.zeros((6, 6, 6, img_res[0], img_res[1]), dtype=np.float32)
+
+    # store the axis values actually used in the sampled tensor
+    ori_vals   = [float(orientations[oi]) for oi in ori_idxs]
+    sf_vals    = [float(spatial_frequencies[si]) for si in sf_idxs]
+    phase_vals = [float(phases[pi]) for pi in ph_idxs]
+
     ## Get every parameters combination
     with torch.no_grad():
-        for orientation in orientations :
-            for sf in spatial_frequencies:
-                for phase in phases: 
-                
+        for oi, orientation in enumerate(orientations):
+            for si, sf in enumerate(spatial_frequencies):
+                for pi, phase in enumerate(phases):
+                    
                     ## Creation of the grating image
                     grating = torch.Tensor(imagen.SineGrating(
                         orientation = orientation, 
@@ -119,6 +144,12 @@ def find_preferred_grating_parameters_full_field(
                     grating = rescale(grating, 0, 1, -1, 1)*contrast
                     grating = rescale(grating, -1, 1, pixel_min, pixel_max)
 
+                    if (oi in ori_map) and (si in sf_map) and (pi in ph_map):
+                        a = ori_map[oi]   # 0..5
+                        b = sf_map[si]    # 0..5
+                        c = ph_map[pi]    # 0..5
+                        stim_sampled[a, b, c] = grating.detach().cpu().numpy()[0].astype(np.float32)
+
                     resp = single_model(grating.reshape(1,1,*img_res))
 
                     if resp>resp_max:
@@ -127,6 +158,10 @@ def find_preferred_grating_parameters_full_field(
                         max_phase = phase
                         max_sf = sf
                         stim_max = grating
+
+
+    extent_deg = (-size[1]/2, size[1]/2, -size[0]/2, size[0]/2)
+
         
     return max_ori, max_sf, max_phase, stim_max, resp_max
 
@@ -144,7 +179,7 @@ def get_all_grating_parameters(
     pixel_min = -1.7876, #e.g:  (the lowest value encountered in the data we worked with)
     pixel_max =  2.1919, #e.g:  (the highest value encountered in the data we worked with)
     device = None,
-    size = 2.67,           
+    size = 2.67,        
     ):
 
     '''
@@ -170,6 +205,8 @@ def get_all_grating_parameters(
 
     ## Create the group path
     group_path = "/full_field_params"
+
+    print("Jou J I did smtg")
 
     ## Clear the group if requested
     if overwrite : 
@@ -199,6 +236,33 @@ def get_all_grating_parameters(
     ## Save the preferred parameters (an array where each row is a neuron and each column is a parameter)
     preferred_params = torch.zeros((len(neuron_ids),3)) ## Columns = [ori, sf, phase,max_response]
 
+
+    
+    # --- PRECHECK: prepare 6x6x6 sampling (indices in the parameter grids) ---
+    ori_idxs = sample_indices(len(orientations), 6)
+    sf_idxs  = sample_indices(len(spatial_frequencies), 6)
+    ph_idxs  = sample_indices(len(phases), 6)
+
+    ori_map = {int(oi): i for i, oi in enumerate(ori_idxs)}
+    sf_map  = {int(si): i for i, si in enumerate(sf_idxs)}
+    ph_map  = {int(pi): i for i, pi in enumerate(ph_idxs)}
+
+    # store only 216 stimuli (ori, sf, phase, H, W) as actually fed to model
+    stim_sampled = np.zeros((6, 6, 6, img_res[0], img_res[1]), dtype=np.float32)
+
+    # axis values for labeling
+    ori_vals   = [float(orientations[oi]) for oi in ori_idxs]
+    sf_vals    = [float(spatial_frequencies[si]) for si in sf_idxs]
+    phase_vals = [float(phases[pi]) for pi in ph_idxs]
+
+    # extent in degrees (since you have size in DVA)
+    extent_deg = (-size[1]/2, size[1]/2, -size[0]/2, size[0]/2)
+
+    # pick a stable "neuron label" for the PNG filename; this run covers all neurons
+    precheck_neuron_label = f"{len(neuron_ids)}neurons"
+    precheck_curve_type = "fullfield_grating"
+
+
     ## If the neurons are not all in the data : 
     if check_neurons_presence(h5_file, [group_path], neuron_ids) : 
         return
@@ -207,9 +271,9 @@ def get_all_grating_parameters(
 
         ## Get every parameters combination
         with torch.no_grad():
-            for orientation in tqdm(orientations) :
-                for sf in spatial_frequencies:
-                    for phase in phases: 
+            for oi, orientation in enumerate(tqdm(orientations)):
+                for si, sf in enumerate(spatial_frequencies):
+                    for pi, phase in enumerate(phases):
                     
                         ## Creation of the grating image
                         grating = torch.Tensor(imagen.SineGrating(
@@ -224,20 +288,22 @@ def get_all_grating_parameters(
                         )())
 
 
-                        grating_np = grating.squeeze().detach().cpu().numpy()
-                        carrier_min_val, carrier_max_val = grating_np.min(), grating_np.max()
-                        directory = "/project/results/get_all_grating_parameters/"
-                        os.makedirs(directory, exist_ok=True)
-                        fig, ax = plt.subplots()
-                        im = ax.imshow(grating_np.squeeze(),  cmap='gray', vmin=carrier_min_val, vmax=carrier_max_val)
-                        fig.colorbar(im, ax=ax)
-                        plt.savefig(directory +  f"grating_ori_{orientation}_sf_{sf}_phase_{phase}.png")
-                        plt.close()
-
                         grating = grating.to(device)
                         ## Rescale because the output of imagen has values from 0 to 1 and we want 
                         ## values from pixel_min to pixel_max (be carful to use contrast on centered values)
                         grating = rescale(grating, 0, 1, -1, 1)*contrast
+
+
+                         # --- PRECHECK CAPTURE: store ONLY if this (oi,si,pi) is sampled ---
+                        if (oi in ori_map) and (si in sf_map) and (pi in ph_map):
+                            a = ori_map[oi]  # 0..5 (sampled orientation index)
+                            b = sf_map[si]   # 0..5 (sampled sf index)
+                            c = ph_map[pi]   # 0..5 (sampled phase index)
+
+                            # IMPORTANT: store the final matrix actually fed to model (after rescale)
+                            stim_sampled[a, b, c] = grating.detach().cpu().numpy().astype(np.float32)
+
+
                         grating = rescale(grating, -1, 1, pixel_min, pixel_max)
 
                         ## Get the response for the selected neurons
@@ -254,6 +320,24 @@ def get_all_grating_parameters(
 
                         ## Update the maximal response
                         resp_max[condition] = resp[condition]
+
+
+        
+        save_stim_sampled_png(
+            stim_sampled=stim_sampled,
+            ori_vals=ori_vals,
+            sf_vals=sf_vals,
+            phase_vals=phase_vals,
+            save_dir="/project/results/nature_and_interaction/precheck/",
+            filename=f"stim_sampled_compact.png",
+            extent_deg=extent_deg,
+            phase_panels=4,        # vidíš progres napříč fází
+            tile_downsample=3,     # masivně zmenší výstup (93 -> ~31 px)
+            add_labels=True,
+            dpi=2000,
+        )
+
+
 
         ## Now save the parameters in the file
         with h5py.File(h5_file, 'a') as file :
@@ -954,3 +1038,384 @@ def verify_ellipse_vs_gaussian(cx, cy, width, height, angle_deg,
     # compute error relative to analytic level
     err = np.abs(Zr - level)
     return float(err.max()), (err.max() <= atol)
+
+
+
+# Post analysis
+
+
+def sample_indices(n_total, n_samples):
+    """Always includes first and last, fills the rest evenly."""
+    n_samples = min(n_samples, n_total)
+    if n_samples <= 1:
+        return np.array([0], dtype=int)
+    if n_samples == 2:
+        return np.array([0, n_total - 1], dtype=int)
+    middle = np.linspace(1, n_total - 2, n_samples - 2)
+    middle = np.round(middle).astype(int)
+    idxs = np.concatenate(([0], middle, [n_total - 1]))
+    # unique in case rounding collapses indices
+    idxs = np.unique(idxs)
+    # if uniqueness reduced count, pad by adding nearest missing indices
+    if len(idxs) < n_samples:
+        missing = [i for i in range(n_total) if i not in set(idxs)]
+        # add evenly from missing
+        add = np.linspace(0, len(missing) - 1, n_samples - len(idxs))
+        add = np.round(add).astype(int)
+        idxs = np.concatenate([idxs, np.array([missing[i] for i in add], dtype=int)])
+        idxs = np.unique(idxs)
+    return idxs[:n_samples]
+
+
+
+def contrast_metrics(img):
+    img = np.asarray(img, dtype=np.float64)
+    vmin, vmax = float(img.min()), float(img.max())
+    mean, std = float(img.mean()), float(img.std())
+    p05, p50, p95 = np.percentile(img, [5, 50, 95])
+
+    denom = (vmax + vmin)
+    michelson = (vmax - vmin) / denom if denom != 0 else np.nan
+
+    denom_p = (p95 + p05)
+    michelson_p = (p95 - p05) / denom_p if denom_p != 0 else np.nan
+
+    rms = (std / mean) if mean != 0 else np.nan
+
+    # Clipping diagnostic: fraction of pixels sitting exactly on min/max
+    # (useful when upstream generation clips)
+    eps = 1e-12
+    frac_on_min = float(np.mean(np.abs(img - vmin) < eps))
+    frac_on_max = float(np.mean(np.abs(img - vmax) < eps))
+
+    return {
+        "min": vmin, "max": vmax,
+        "mean": mean, "std": std,
+        "p05": float(p05), "p50": float(p50), "p95": float(p95),
+        "michelson": float(michelson),
+        "michelson_p05_p95": float(michelson_p),
+        "rms": float(rms),
+        "frac_on_min": frac_on_min,
+        "frac_on_max": frac_on_max,
+    }
+
+
+def _get_img(stimuli, oi, si, pi):
+    """Support tensor (O,S,P,H,W) or dict keyed by (oi,si,pi)."""
+    if isinstance(stimuli, np.ndarray):
+        return stimuli[oi, si, pi]
+    return stimuli[(oi, si, pi)]
+
+
+def plot_6_ori_grids_phase_x_sf(
+    stimuli,
+    orientations,
+    spatial_frequencies,
+    phases,
+    neuron="neuron",
+    curve_type="stim",
+    n_ori=6,
+    n_sf=6,
+    n_phase=6,
+    extent_deg=None,          # (xmin,xmax,ymin,ymax) in degrees; optional but recommended
+    deg_per_pixel=None,       # alternative: degrees per pixel (assumes centered extent)
+    save_dir="/project/results/facilitation/stim_grids/",
+    dpi=300,
+    show_ticks=True,
+    show_grid=True,
+    overlay_metrics=True,
+    colorbar_mode="lastcol",  # "none" | "lastcol" | "all"
+    save_metadata=True,
+):
+    """
+    Creates 6 orientation-slice panels. Each panel is a 6x6 grid:
+      rows = phases, cols = spatial frequencies.
+
+    Key properties:
+      - Shared vmin/vmax across ALL displayed images (quantitative comparison).
+      - Optional degree coordinates via extent_deg or deg_per_pixel.
+      - Per-image overlay of contrast metrics.
+      - Saves metadata JSON describing which indices/values were shown + global scales.
+    """
+    os.makedirs(save_dir, exist_ok=True)
+
+    O = len(orientations)
+    S = len(spatial_frequencies)
+    P = len(phases)
+
+    ori_idxs = sample_indices(O, n_ori)
+    sf_idxs  = sample_indices(S, n_sf)
+    ph_idxs  = sample_indices(P, n_phase)
+
+    sampled_oris = [float(orientations[i]) for i in ori_idxs]
+    sampled_sfs  = [float(spatial_frequencies[i]) for i in sf_idxs]
+    sampled_phs  = [float(phases[i]) for i in ph_idxs]
+
+    # Build extent if requested
+    if extent_deg is not None and deg_per_pixel is not None:
+        raise ValueError("Provide only one of extent_deg or deg_per_pixel.")
+    if extent_deg is None and deg_per_pixel is not None:
+        # derive extent from image size (assumes all images same shape)
+        H, W = _get_img(stimuli, 0, 0, 0).shape
+        width_deg = W * float(deg_per_pixel)
+        height_deg = H * float(deg_per_pixel)
+        extent_deg = (-width_deg/2, width_deg/2, -height_deg/2, height_deg/2)
+
+    # Preload displayed images and compute global vmin/vmax
+    imgs = {}
+    all_mins, all_maxs = [], []
+    for a, oi in enumerate(ori_idxs):
+        for c, si in enumerate(sf_idxs):
+            for r, pi in enumerate(ph_idxs):
+                img = np.asarray(_get_img(stimuli, oi, si, pi))
+                imgs[(a, c, r)] = img
+                all_mins.append(img.min())
+                all_maxs.append(img.max())
+
+    global_vmin = float(np.min(all_mins))
+    global_vmax = float(np.max(all_maxs))
+
+    # Save run-level metadata
+    run_meta = {
+        "neuron": neuron,
+        "curve_type": curve_type,
+        "n_ori": int(n_ori), "n_sf": int(n_sf), "n_phase": int(n_phase),
+        "ori_indices": [int(i) for i in ori_idxs],
+        "sf_indices":  [int(i) for i in sf_idxs],
+        "phase_indices":[int(i) for i in ph_idxs],
+        "ori_values": sampled_oris,
+        "sf_values": sampled_sfs,
+        "phase_values": sampled_phs,
+        "global_vmin": global_vmin,
+        "global_vmax": global_vmax,
+        "extent_deg": list(extent_deg) if extent_deg is not None else None,
+        "show_ticks": bool(show_ticks),
+        "show_grid": bool(show_grid),
+        "overlay_metrics": bool(overlay_metrics),
+        "colorbar_mode": colorbar_mode,
+    }
+
+    if save_metadata:
+        meta_path = os.path.join(save_dir, f"{neuron}_{curve_type}_stimgrid_runmeta.json")
+        with open(meta_path, "w") as f:
+            json.dump(run_meta, f, indent=2)
+        print(f"Saved run metadata: {meta_path}")
+
+    # Plot one figure per sampled orientation (clean + readable + easy to cite)
+    for a, (oi, ori_val) in enumerate(zip(ori_idxs, sampled_oris)):
+        fig, axes = plt.subplots(n_phase, n_sf, figsize=(n_sf * 2.2, n_phase * 2.2))
+
+        if n_phase == 1 and n_sf == 1:
+            axes = np.array([[axes]])
+        elif n_phase == 1:
+            axes = axes[np.newaxis, :]
+        elif n_sf == 1:
+            axes = axes[:, np.newaxis]
+
+        per_panel_metrics = []  # optional: store metrics per tile
+
+        for r, (pi, ph_val) in enumerate(zip(ph_idxs, sampled_phs)):
+            for c, (si, sf_val) in enumerate(zip(sf_idxs, sampled_sfs)):
+                ax = axes[r, c]
+                img = imgs[(a, c, r)]
+
+                im = ax.imshow(
+                    img,
+                    cmap="gray",
+                    origin="lower",
+                    vmin=global_vmin,
+                    vmax=global_vmax,
+                    extent=extent_deg,
+                )
+
+                # Labeling: top row SF, left col phase (readable, non-chaotic)
+                if r == 0:
+                    ax.set_title(f"sf={sf_val:.4g}", fontsize=8)
+                if c == 0:
+                    ax.set_ylabel(f"ph={ph_val:.3f}", fontsize=8)
+
+                if show_ticks:
+                    ax.tick_params(labelsize=7, length=2)
+                    if extent_deg is None:
+                        # If no extent, ticks are pixel indices; that’s still “quantifiable”
+                        ax.set_xlabel("x (px)" if r == n_phase - 1 else "")
+                        if c == 0:
+                            ax.set_ylabel(ax.get_ylabel() + "\ny (px)")
+                    else:
+                        ax.set_xlabel("x (deg)" if r == n_phase - 1 else "")
+                        if c == 0:
+                            ax.set_ylabel(ax.get_ylabel() + "\ny (deg)")
+                else:
+                    ax.set_xticks([]); ax.set_yticks([])
+
+                if show_grid:
+                    ax.grid(True, linewidth=0.3, alpha=0.5)
+
+                if overlay_metrics:
+                    m = contrast_metrics(img)
+                    per_panel_metrics.append({
+                        "oi": int(oi), "si": int(si), "pi": int(pi),
+                        "ori": float(ori_val), "sf": float(sf_val), "phase": float(ph_val),
+                        **m,
+                    })
+                    txt = (
+                        f"min {m['min']:.2f} max {m['max']:.2f}\n"
+                        f"μ {m['mean']:.2f} σ {m['std']:.2f}\n"
+                        f"M {m['michelson']:.2f} Mp {m['michelson_p05_p95']:.2f}\n"
+                        f"clip {m['frac_on_min']:.2f}/{m['frac_on_max']:.2f}"
+                    )
+                    ax.text(
+                        0.02, 0.02, txt,
+                        transform=ax.transAxes,
+                        fontsize=6,
+                        va="bottom", ha="left",
+                        bbox=dict(boxstyle="round", facecolor="white", alpha=0.65, linewidth=0.3),
+                    )
+
+                # Colorbars
+                if colorbar_mode == "all" or (colorbar_mode == "lastcol" and c == n_sf - 1):
+                    divider = make_axes_locatable(ax)
+                    cax = divider.append_axes("right", size="5%", pad=0.02)
+                    cb = plt.colorbar(im, cax=cax)
+                    cb.ax.tick_params(labelsize=6)
+
+        fig.suptitle(
+            f"{neuron} | {curve_type} | ori slice {a+1}/{len(ori_idxs)}: ori={ori_val:.5g} rad\n"
+            f"grid = phase (rows) × sf (cols), shared scale [{global_vmin:.3g}, {global_vmax:.3g}]",
+            fontsize=12
+        )
+        fig.tight_layout(rect=[0, 0, 1, 0.94])
+
+        out_png = os.path.join(save_dir, f"{neuron}_{curve_type}_oriSlice{a:02d}_ori{ori_val:.5g}.png")
+        plt.savefig(out_png, dpi=dpi)
+        plt.close(fig)
+        print(f"Saved: {out_png}")
+
+        if save_metadata and overlay_metrics:
+            out_json = os.path.join(save_dir, f"{neuron}_{curve_type}_oriSlice{a:02d}_metrics.json")
+            with open(out_json, "w") as f:
+                json.dump(per_panel_metrics, f, indent=2)
+            print(f"Saved tile metrics: {out_json}")
+
+
+
+from matplotlib.cm import ScalarMappable
+from matplotlib.colors import Normalize
+
+
+def save_stim_sampled_png(
+    stim_sampled,            # (n_ori, n_sf, n_phase, H, W)
+    ori_vals,
+    sf_vals,
+    phase_vals,
+    save_dir,
+    filename="stim_sampled.png",
+    extent_deg=None,
+    # --- new knobs ---
+    phase_panels=4,          # how many phase snapshots to show (progression)
+    tile_downsample=3,       # integer stride for tile downsampling (1 = no downsample)
+    tile_px=None,            # optional: force each tile to tile_px x tile_px via simple decimation
+    add_labels=True,
+    dpi=3000,
+):
+    """
+    Saves a compact contact sheet:
+      rows    = n_ori
+      cols    = n_sf * phase_panels (phase montages concatenated horizontally)
+
+    Each phase panel is a n_ori x n_sf montage.
+    """
+
+    stim = np.asarray(stim_sampled)
+    assert stim.ndim == 5, f"Expected (n_ori,n_sf,n_phase,H,W), got {stim.shape}"
+    n_ori, n_sf, n_ph, H, W = stim.shape
+
+    phase_panels = int(min(max(1, phase_panels), n_ph))
+    if phase_panels == 1:
+        ph_idxs = [n_ph // 2]
+    else:
+        ph_idxs = np.linspace(0, n_ph - 1, phase_panels).round().astype(int).tolist()
+
+    # global contrast so comparisons across tiles make sense
+    vmin = float(stim.min())
+    vmax = float(stim.max())
+
+    norm = Normalize(vmin=vmin, vmax=vmax)
+    sm = ScalarMappable(norm=norm, cmap="gray")
+    sm.set_array([])  # required by matplotlib, because reasons
+
+    def prep_tile(x):
+        x = x.astype(np.float32)
+        if tile_downsample and tile_downsample > 1:
+            x = x[::tile_downsample, ::tile_downsample]
+        return x
+
+    # determine tile size after downsample
+    t0 = prep_tile(stim[0, 0, ph_idxs[0]])
+    tH, tW = t0.shape
+
+    # build montage per phase: (n_ori*tH, n_sf*tW)
+    def build_montage(ph):
+        m = np.zeros((n_ori * tH, n_sf * tW), dtype=np.float32)
+        for oi in range(n_ori):
+            r0, r1 = oi * tH, (oi + 1) * tH
+            for si in range(n_sf):
+                c0, c1 = si * tW, (si + 1) * tW
+                m[r0:r1, c0:c1] = prep_tile(stim[oi, si, ph])
+        return m
+
+    # figure layout: one row, phase_panels columns
+    fig_w = max(8, phase_panels * 3.2)
+    fig_h = max(4, n_ori * 0.55)
+    fig, axes = plt.subplots(
+        1, phase_panels,
+        figsize=(fig_w, fig_h),
+        dpi=dpi,
+        constrained_layout=True
+    )
+    if phase_panels == 1:
+        axes = [axes]
+
+    for j, (ax, ph) in enumerate(zip(axes, ph_idxs)):
+        montage = build_montage(ph)
+        ax.imshow(montage, cmap="gray", vmin=vmin, vmax=vmax, origin="upper", interpolation="nearest")
+
+        # Title per phase panel
+        ph_val = phase_vals[ph] if phase_vals is not None else ph
+        ax.set_title(f"phase={ph_val:.2f}", fontsize=11, pad=8)
+
+        # X ticks: SF (only at tile centers)
+        xticks = (np.arange(n_sf) + 0.5) * tW
+        ax.set_xticks(xticks)
+        ax.set_xticklabels([f"{sf_vals[si]:.2f}" for si in range(n_sf)], fontsize=9, rotation=45, ha="right")
+
+        # Y ticks: ORI only on the first panel (clean!)
+        yticks = (np.arange(n_ori) + 0.5) * tH
+        ax.set_yticks(yticks)
+        if j == 0:
+            ax.set_yticklabels([f"{ori_vals[oi]:.2f}" for oi in range(n_ori)], fontsize=9)
+            ax.set_ylabel("ori (rad)", fontsize=10)
+        else:
+            ax.set_yticklabels([])
+
+        ax.set_xlabel("sf", fontsize=10)
+
+        # remove spines, keep it clean
+        for s in ax.spines.values():
+            s.set_visible(False)
+        ax.tick_params(length=0)
+
+    cbar = fig.colorbar(
+        sm,
+        ax=axes,
+        location="right",
+        fraction=0.035,   # width of colorbar
+        pad=0.02
+    )
+    cbar.set_label("pixel value", fontsize=10)
+    cbar.ax.tick_params(labelsize=9)
+    os.makedirs(save_dir, exist_ok=True)
+    outpath = os.path.join(save_dir, filename)
+    fig.savefig(outpath, bbox_inches="tight", pad_inches=0.06)
+    plt.close(fig)
+    return outpath  

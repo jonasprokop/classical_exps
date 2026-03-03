@@ -8,15 +8,26 @@ import scipy.interpolate
 import scipy.optimize
 import torch
 import math
-## Utils
-from classical_exps.functions.analysis.a_filtering_fucntions import *
-from classical_exps.functions.utils import *
-from classical_exps.functions.experiments import get_GSF_surround_AMRF
-## Plots
+import time
+
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.ticker import ScalarFormatter
+from matplotlib.lines import Line2D
+
+from scipy.optimize import differential_evolution, minimize, Bounds
+from scipy.stats.qmc import LatinHypercube
+
+from scipy.optimize import basinhopping, Bounds
+from scipy.stats.qmc import LatinHypercube
+import time
+
+
+## Utils
+from classical_exps.functions.analysis.a_filtering_fucntions import *
+from classical_exps.functions.utils import *
+from classical_exps.functions.article_1.common.metrics_size import get_GSF_surround_AMRF ## Plots
 from classical_exps.functions.utils import plot_img
 ## Data storage
 import h5py
@@ -27,14 +38,6 @@ import pandas as pd
 import openpyxl
 import datetime
 
-from scipy.optimize import differential_evolution, minimize, Bounds
-from scipy.stats.qmc import LatinHypercube
-import numpy as np, time
-
-from scipy.optimize import basinhopping, Bounds
-from scipy.stats.qmc import LatinHypercube
-import numpy as np
-import time
 
 
 def recreate_plots_results_article_7(
@@ -43,7 +46,7 @@ def recreate_plots_results_article_7(
     fit_err_thresh=0.2,
     size=2.67,
     device=None,
-    fit = True,
+    fit = False,
     n_trials=1000,
     plot_tunning_curves=True, 
     store_intermediate_results = True
@@ -189,8 +192,9 @@ def recreate_plots_results_article_7(
                 
         for neuron_id in filtered_neuron_ids:
 
-            if neuron_id != 111:
-                continue
+            # allowed = {2, 3, 6, 8, 9, 11}      
+            # if neuron_id not in allowed:
+            #     continue
 
             neuron = f"neuron_{neuron_id}"
             counters["status"]["all"] += 1
@@ -327,16 +331,26 @@ def recreate_plots_results_article_7(
                 else:
                     # Load saved fits
                     try:
-                        # Extract low contrast response
-                        params_low_contrast_curve = patch_tunning_fits[neuron]
-                        residual_low_contrast = patch_tunning_residuals[neuron]
-                        params_low_contrast_curve, residual_low_contrast = None, None
-                        print(f"Loaded fit for low contrast patch tuning curve for {neuron} with params: {residual_low_contrast}")
-                        residual_low_contrast = np.asarray(residual_low_contrast, dtype=np.float64)
-                        residual_low_contrast = residual_low_contrast.item()
-                        residual_low_contrast = float(residual_low_contrast)
+                        ds_params = patch_tunning_fits[neuron]
+                        ds_resid  = patch_tunning_residuals[neuron]
 
-                    except:
+                        params_low_contrast_curve = np.asarray(ds_params, dtype=np.float64)
+                        residual_low_contrast     = np.asarray(ds_resid,  dtype=np.float64)
+
+                        # Handle scalar / NaN placeholders
+                        if params_low_contrast_curve.ndim == 0:
+                            if np.isnan(params_low_contrast_curve):
+                                params_low_contrast_curve = None
+                        if residual_low_contrast.ndim == 0:
+                            residual_low_contrast = float(residual_low_contrast)
+
+                        print(
+                            f"Loaded fit for low contrast patch tuning curve for {neuron}: "
+                            f"params={params_low_contrast_curve}, residual={residual_low_contrast}"
+                        )
+
+                    except Exception as e:
+                        print(f"Could not load low contrast patch fit for {neuron}: {e}")
                         params_low_contrast_curve, residual_low_contrast = None, None
 
                 if params_low_contrast_curve is None:
@@ -412,18 +426,35 @@ def recreate_plots_results_article_7(
                 else:
                     # Load saved fits
                     try:
-                        # Extract low contrast response
                         name_neuron = neuron + "_" + cond
 
-                        params = annular_tunning_fits[name_neuron]
+                        # HDF5 datasets
+                        ds_params   = annular_tunning_fits[name_neuron]
+                        ds_residual = annular_tunning_residuals[name_neuron]
 
-                        residual = annular_tunning_residuals[name_neuron]
+                        # Convert to numpy arrays
+                        params_arr   = np.asarray(ds_params,   dtype=np.float64)
+                        residual_arr = np.asarray(ds_residual, dtype=np.float64)
 
-                        params = np.asarray(params, dtype=np.float64)
-                        residual = residual.item()
-                        residual = float(residual)
+                        # Detect "no fit" markers: empty array or all-NaN
+                        if params_arr.size == 0 or np.all(np.isnan(params_arr)):
+                            params, residual = None, None
+                            print(f"No valid annular fit for {neuron} in condition {cond} (empty/NaN params).")
+                        else:
+                            params = params_arr
+                            # residual should be scalar; handle shape safely
+                            if residual_arr.size == 0 or np.all(np.isnan(residual_arr)):
+                                residual = None
+                                print(f"Loaded params but residual NaN for {neuron} in condition {cond}.")
+                            else:
+                                residual = float(residual_arr.reshape(-1)[0])
+                                print(
+                                    f"Loaded fit for annular tuning curve for {neuron} in condition {cond} "
+                                    f"with params={params} and residual={residual:.4g}"
+                                )
 
-                    except:
+                    except Exception as e:
+                        print(f"Could not load annular fit for {neuron} in condition {cond}: {e}")
                         params, residual = None, None
                     
                 data_annular_tuning_curves[cond]["fit"][neuron] = [params, residual]
@@ -435,6 +466,8 @@ def recreate_plots_results_article_7(
                     # fit the curve
                     responses_fit = dog(radii, *params)
                     result_annular_tunning_fit = find_facilitation_annular_tunning_curve(responses_fit, data_annular_tuning_curves[cond]["data"][neuron]["rctr"], radii)
+
+
 
                 # raw results to check the results on them
                 result_annular_tunning_raw = find_facilitation_annular_tunning_curve(responses, data_annular_tuning_curves[cond]["data"][neuron]["rctr"], radii)
@@ -457,6 +490,8 @@ def recreate_plots_results_article_7(
                 
 
                 if plot_tunning_curves:
+
+                    print(params, residual) 
                     # plot the patch tunning curve
                     plot_tunning_curve(radii=radii,
                                         responses=responses,
@@ -601,18 +636,15 @@ def recreate_plots_results_article_7(
                 res["facilitation_strength_non_negative"] = fac_strength if fac_strength is not None and fac_strength >= 0 else None
                 res["facilitation_strength_clipped_0"] = max(fac_strength, 0) if fac_strength is not None else None
 
-
-        HH_width_center_only = []
-        LH_center_only = []
-        LL_center_only = []
-
-
         colors ={
         "HH":"#000000",    # Black
         "LH":"#8B0000",    # Dark Red
         "LL":"#708090",    # Slate Gray
             }
 
+        HH_width_center_only = []
+        LH_center_only = []
+        LL_center_only = []
 
         for neuron in shared_neurons:
             try:
@@ -666,26 +698,163 @@ def recreate_plots_results_article_7(
 
         plot_inner_radius_peak_response_histogram(peaks_L, colors, cond)
 
-        # Figure 5D: Scatter plot of suppression vs. facilitation distances
-        facilitation_onset_from_peak = []
-        facilitation_onset_from_center = []
-        suppression_onset = []
 
-        for neuron in shared_neurons:
-            fit_res = results_annular_tuning_curves["fit"]["LL"][neuron]
-            f_peak = fit_res.get("facilitation_radius_from_peak")
-            f_center = fit_res.get("facilitation_radius_from_center_only")
-            sup = fit_res.get("suppression_radius_from_center_only")
-            if f_peak is not None and f_center is not None and sup is not None:
-                facilitation_onset_from_peak.append(f_peak)
-                facilitation_onset_from_center.append(f_center)
-                suppression_onset.append(sup)
 
-        facilitation_onset_from_peak = np.array(facilitation_onset_from_peak)
-        facilitation_onset_from_center = np.array(facilitation_onset_from_center)
-        suppression_onset = np.array(suppression_onset)
+        # 5D: Summary statistics and 5D scatter plot
 
-        plot_suppresion_facilitation_distances_scatter(facilitation_onset_from_peak, facilitation_onset_from_center, suppression_onset)
+        def build_fac_supp_table(results_annular_tuning_curves):
+            rows = []
+            all_neurons = set()
+            for cond in ["HH", "LH", "LL"]:
+                all_neurons |= set(results_annular_tuning_curves["fit"][cond].keys())
+
+            for neuron in sorted(all_neurons):
+                for cond in ["HH", "LH", "LL"]:
+                    res = results_annular_tuning_curves["fit"][cond].get(neuron, None)
+
+                    if not isinstance(res, dict):
+                        rows.append({
+                            "neuron": neuron,
+                            "cond": cond,
+                            "fac_strength": None,
+                            "f_center": None,
+                            "s_center": None,
+                            "category": "no_data",
+                            "ratio_center": None,
+                        })
+                        continue
+
+                    fac = res.get("facilitation_strength_clipped_0")
+                    f_center = res.get("facilitation_radius_from_center_only")
+                    s_center = res.get("suppression_radius_from_center_only")
+
+                    has_fac = fac is not None and np.isfinite(fac) and fac >= 10
+                    has_supp = s_center is not None and np.isfinite(s_center)
+
+                    if not has_fac and not has_supp:
+                        category = "none"
+                    elif has_fac and not has_supp:
+                        category = "fac_only"
+                    elif not has_fac and has_supp:
+                        category = "supp_only"
+                    else:
+                        category = "both"
+
+                    ratio_center = None
+                    if (
+                        f_center is not None and np.isfinite(f_center) and f_center > 0 and
+                        s_center is not None and np.isfinite(s_center)
+                    ):
+                        ratio_center = float(s_center) / float(f_center)
+
+                    rows.append({
+                        "neuron": neuron,
+                        "cond": cond,
+                        "fac_strength": fac,
+                        "f_center": f_center,
+                        "s_center": s_center,
+                        "category": category,
+                        "ratio_center": ratio_center,
+                    })
+
+            return pd.DataFrame(rows)
+
+
+        def summarize_fac_supp_df(df):
+            print("\n========== PER-NEURON SUMMARY ==========")
+
+            for cond in ["HH", "LH", "LL"]:
+                sub = df[df.cond == cond]
+                print(f"\n--- Condition {cond} ---")
+                print(f"Total neurons: {len(sub)}")
+
+                # distribution of regimes
+                vc = sub["category"].value_counts()
+                for cat in ["none", "fac_only", "supp_only", "both"]:
+                    print(f"  {cat:10s}: {vc.get(cat, 0)}")
+
+                # ratio statistics
+                ratios = sub["ratio_center"].dropna().values
+                if ratios.size > 0:
+                    print(f"  ratio_center: min={ratios.min():.3g}, median={np.median(ratios):.3g}, max={ratios.max():.3g}")
+                    print(f"    frac(<1.0): {np.mean(ratios < 1.0):.2%}")
+                    print(f"    frac(0.8–1.25): {np.mean((ratios >= 0.8) & (ratios <= 1.25)):.2%}")
+                    print(f"    frac(>1.0): {np.mean(ratios > 1.0):.2%}")
+                else:
+                    print("  ratio_center: no usable values")
+
+
+        def neuron_to_neuron_pairwise(df):
+            print("\n========== PAIRWISE NEURON–NEURON SUMMARY ==========")
+
+            for cond in ["HH", "LH", "LL"]:
+                sub = df[df.cond == cond].copy()
+
+                # numeric subset
+                valid = sub.dropna(subset=["f_center", "s_center"])
+                if len(valid) < 3:
+                    print(f"\n--- {cond}: insufficient data for pairwise stats ---")
+                    continue
+
+                print(f"\n--- Condition {cond} ---")
+                print(f"Usable neurons: {len(valid)}")
+
+                f_vals = valid["f_center"].values
+                s_vals = valid["s_center"].values
+
+                # correlations
+                if len(f_vals) > 2:
+                    corr_fs = np.corrcoef(f_vals, s_vals)[0,1]
+                    print(f"  corr(f_center, s_center) = {corr_fs:.3f}")
+                else:
+                    print("  correlation unavailable")
+
+                # regime overlap
+                cats = valid["category"]
+                frac_both = np.mean(cats == "both")
+                frac_fac_only = np.mean(cats == "fac_only")
+                frac_supp_only = np.mean(cats == "supp_only")
+
+                print(f"  frac(both)     = {frac_both:.2%}")
+                print(f"  frac(fac_only) = {frac_fac_only:.2%}")
+                print(f"  frac(supp_only)= {frac_supp_only:.2%}")
+
+
+
+        fac_supp_df = build_fac_supp_table(results_annular_tuning_curves)
+        fac_supp_df.to_excel("/project/results/facilitation/fac_supp_table.xlsx", index=False)
+
+        summarize_fac_supp_df(fac_supp_df)
+        neuron_to_neuron_pairwise(fac_supp_df)
+
+
+
+        fac_center, supp_center, fac_peak, supp_peak = build_5D_data(
+            results_annular_tuning_curves, shared_neurons
+        )
+
+        # classify whole population for ghost lines (fac-only / supp-only / none)
+        summary_5d = summarize_5D_population(
+            results_annular_tuning_curves, shared_neurons, fac_thresh=10.0
+        )
+
+        fac_center, supp_center, fac_peak, supp_peak = build_5D_data(
+            results_annular_tuning_curves,
+            shared_neurons,
+        )
+
+        plot_suppresion_facilitation_distances_scatter_panel(
+            fac_center,
+            supp_center,
+            fac_peak=fac_peak,
+            supp_peak=supp_peak,
+            summary_5d=summary_5d,
+        )
+
+        plot_5d_category_counts(summary_5d)
+        plot_fac_strength_histogram(results_annular_tuning_curves, shared_neurons)
+        plot_suppression_onset_histogram(results_annular_tuning_curves, shared_neurons)
+
 
         # Figure 6A Scatter plot of sRFhigh vs. sRFlow 
         plot_srfhigh_srflow_scatter(sRFhigh_values, sRFlow_values)
@@ -717,8 +886,6 @@ def recreate_plots_results_article_7(
         #     os.makedirs(directory, exist_ok=True)
         #     np.savetxt(directory + "srfratios.txt", sRF_ratios)
 
-
-
 def ensure_dict_path(d, *keys):
     """
     Ensures that nested keys in a dict `d` exist, initializing them as empty dicts if needed.
@@ -730,13 +897,21 @@ def ensure_dict_path(d, *keys):
         d = d[key]
     return d
 
+
 # ---------- model: two-inh, one sigma, hard-threshold ----------
-def dog(s, A_E, A_I1, A_I2, sigma, T_I1, T_I2, baseline=0.0):
+def dog(s, A_E, A_I1, sigma, T_I1, baseline=0.0):
     g = np.exp(-s**2 / (2.0 * sigma**2))
     E  = A_E  * g
     I1 = np.maximum(A_I1 * g - T_I1, 0.0)
-    I2 = np.maximum(A_I2 * g - T_I2, 0.0)
-    return E - I1 - I2 + baseline
+    return E - I1 + baseline
+
+# # ---------- model: two-inh, one sigma, hard-threshold ----------
+# def dog(s, A_E, A_I1, A_I2, sigma, T_I1, T_I2, baseline=0.0):
+#     g = np.exp(-s**2 / (2.0 * sigma**2))
+#     E  = A_E  * g
+#     I1 = np.maximum(A_I1 * g - T_I1, 0.0)
+#     I2 = np.maximum(A_I2 * g - T_I2, 0.0)
+#     return E - I1 - I2 + baseline
 
 # # ---------- model: two-inh, central + inhibitory sigma, hard-threshold ----------
 # def dog(s, A_E, A_I1, A_I2, sigma, sigma_surround, T_I1, T_I2, baseline=0.0):
@@ -787,13 +962,13 @@ def _objective_factory(s, y, bounds_list, tail_power=2, huber_delta=None, normal
 def fit_dog(
     radii, responses,
     target_residual=1e-3,
-    max_de_time=800,          #  time for DE exploration
-    de_maxiter=100000,       #  DE search
-    popsize=100,              #  diversity
+    max_de_time=1000,          #  time for DE exploration
+    de_maxiter=50000,       #  DE search
+    popsize=50,              #  diversity
     tail_power=0.2,           #  tail-weighting, to fit the later responses with more weight (prevents underfitting the far surround faci)
     n_polish_perturb=15,      # local starts
     n_polish_lhs=15,          # LHS samples
-    polish_maxiter=30000      # polish iterations
+    polish_maxiter=10000      # polish iterations
 ):
 
     s = np.asarray(radii, float)
@@ -807,15 +982,24 @@ def fit_dog(
     A_hi   = 50.0 * y_span
     sig_hi = 10.0 * s_max
 
+
     bounds_list = [
-        (0, A_hi),   # A_E
-        (0, A_hi),   # A_I1
-        (0, A_hi),   # A_I2
-        (1e-5, 50*sig_hi), # sigma
-        (0, A_hi),   # T_I1
-        (0, A_hi),   # T_I2
-        (y_min - 1.5*y_span, y_max + 1.5*y_span)  # baseline
+        (0, A_hi),               # A_E
+        (0, A_hi),               # A_I1
+        (1e-5, 50*sig_hi),       # sigma
+        (0, A_hi),               # T_I1
+        (y_min - 0.5*y_span, y_max)  # baseline
     ]
+    
+    # bounds_list = [
+    #     (0, A_hi),   # A_E
+    #     (0, A_hi),   # A_I1
+    #     (0, A_hi),   # A_I2
+    #     (1e-5, 50*sig_hi), # sigma
+    #     (0, A_hi),   # T_I1
+    #     (0, A_hi),   # T_I2
+    #     (y_min - 1.5*y_span, y_max + 1.5*y_span)  # baseline
+    # ]
 
     # bounds_list = [
     # (0, A_hi),               # A_E
@@ -928,9 +1112,9 @@ def _objective_factory_oneinh(s, y, bounds_list, tail_power=2):
 def fit_dog_oneinh(
     radii, responses,
     target_residual=1e-3,
-    max_de_time=1000,
-    de_maxiter=1000000,
-    popsize=50,
+    max_de_time=200,
+    de_maxiter=10000,
+    popsize=20,
     tail_power=1,
     polish=True,
     seed=42
@@ -1082,6 +1266,9 @@ def plot_size_tuning_contrast_panel(
     Make a 3-panel plot comparing size tuning across low, normal, and high contrast.
     Includes GSF_low and GSF_high vertical lines and the mRF fit at normal contrast.
     """
+
+
+
 
     fig, axs = plt.subplots(1, 3, figsize=(15, 5), sharey=True)
 
@@ -1325,6 +1512,7 @@ def plot_tunning_curves_all_conditions(
     plt.savefig(plot_name)
     plt.close()
 
+
 def plot_tunning_curves_all_conditions_panel(radii, curve_data, neuron, type="annular"):
     """
     Plot size tuning curves for multiple conditions side-by-side (1xN panel)
@@ -1395,82 +1583,108 @@ def plot_tunning_curves_all_conditions_panel(radii, curve_data, neuron, type="an
     plt.savefig(plot_name)
     plt.close(fig)
 
-def find_facilitation_annular_tunning_curve(responses, 
-                                            R_ctr,
-                                            radii, 
-    ):
 
-    # Global peak and minimum
-    R_peak = np.max(responses)
-    peak_idx = np.argmax(responses)
-    global_min_idx = np.argmin(responses)
+def find_facilitation_annular_tunning_curve(resp_ann, R_center, radii, perc_thr=10.0):
+    """
+    Analyse annular tuning curve in the sense used in the article.
 
-    # Suppression: drop below 90% of R_ctr or R_peak
-    suppression_idx_from_center = np.where(responses < 0.9 * R_ctr)[0]
-    suppression_idx_from_peak = np.where(responses < 0.9 * R_peak)[0]
+    resp_ann : 1D array-like
+        Annular responses (raw or fit).
+    R_center : float
+        Response to center-only stimulation in the same contrast condition.
+    radii    : 1D array-like
+        Inner radii of annulus (same shape as resp_ann).
 
-    facilitation_peak_idx = None
-    facilitation_onset_from_center = None
-    facilitation_offset = None
+    perc_thr : float
+        Percentage threshold for facilitation/suppression (default 10%).
+    """
+    resp_ann = np.asarray(resp_ann, dtype=float)
+    radii    = np.asarray(radii,    dtype=float)
 
-    # Find peak before global minimum
-    pre_min_indices = np.arange(global_min_idx)
-    if pre_min_indices.size == 0:
-        return None
-    
-    pre_min_responses = responses[pre_min_indices]
-    peak_idx_relative = np.argmax(pre_min_responses)
-    peak_response = pre_min_responses[peak_idx_relative]
+    # --- sanity checks ---
+    if resp_ann.ndim == 0 or radii.ndim == 0:
+        raise ValueError(
+            f"find_facilitation_annular_tunning_curve: got scalar(s); "
+            f"resp_ann.ndim={resp_ann.ndim}, radii.ndim={radii.ndim}"
+        )
+    if resp_ann.shape != radii.shape:
+        raise ValueError(
+            f"find_facilitation_annular_tunning_curve: shape mismatch: "
+            f"resp_ann.shape={resp_ann.shape}, radii.shape={radii.shape}"
+        )
 
-    # print(f"DEBUG: Peak response before global minimum: {peak_response} at index {peak_idx_relative} (relative to pre-min indices)")
+    result = {}
 
-    if peak_response > R_ctr:
-        # If peak is above R_ctr, we consider it as a facilitation peak
-        facilitation_peak_idx = pre_min_indices[peak_idx_relative]
+    # ---------- PEAK (R_peak) ----------
+    peak_idx    = int(np.nanargmax(resp_ann))
+    peak_resp   = float(resp_ann[peak_idx])   # R_peak (response)
+    peak_radius = float(radii[peak_idx])      # radius at peak
 
-        # Onset: look backward from peak for last point <= R_ctr
-        for i in range(facilitation_peak_idx - 1, -1, -1):
-            if responses[i] <= R_ctr:
-                facilitation_onset_from_center = radii[i]
-                # print(f"DEBUG: Facilitation onset from center: {facilitation_onset_from_center} at index {i}")
-                break
+    # Downstream code uses R_peak as radius, so keep both
+    result["R_peak"]   = peak_radius
+    result["peak_idx"] = peak_idx
 
-        # look forward from peak for first point <= R_ctr
-        for i in range(facilitation_peak_idx + 1, len(responses)):
-            if responses[i] <= R_ctr:
-                facilitation_offset = radii[i]
-                # print(f"DEBUG: Facilitation offset: {facilitation_offset} at index {i}")
-                break
+    # ---------- FACILITATION VS CENTER-ONLY ----------
+    if R_center is None or not np.isfinite(R_center) or R_center <= 0:
+        result["facilitation_strength"] = None
+        result["facilitation_radius_from_center_only"] = None
+    else:
+        # strength exactly as in the article: from R_peak and R_ctr
+        fac_strength = 100.0 * (peak_resp - R_center) / R_center
+        result["facilitation_strength"] = float(fac_strength)
 
-    # Suppression onset
-    if suppression_idx_from_center.size > 0:
-        suppression_onset = radii[suppression_idx_from_center[0]]
-        # print(f"DEBUG: Suppression onset: {suppression_onset} at index {suppression_idx_from_center[0]}")
+        # onset: first radius where resp >= R_center * (1 + perc_thr/100)
+        fac_level = R_center * (1.0 + perc_thr / 100.0)
+        idx_fac = np.where(resp_ann >= fac_level)[0]
+        if idx_fac.size > 0:
+            result["facilitation_radius_from_center_only"] = float(radii[idx_fac[0]])
+        else:
+            result["facilitation_radius_from_center_only"] = None
 
-    # Suppression radius (from center and peak)
-    if suppression_idx_from_center.size > 0:
-        suppression_radii_from_center_only = radii[suppression_idx_from_center[0]]
-        # print(f"DEBUG: Suppression radius from center: {suppression_radii_from_center_only} at index {suppression_idx_from_center[0]}")
+    # ---------- SUPPRESSION VS CENTER-ONLY ----------
+    if R_center is None or not np.isfinite(R_center) or R_center <= 0:
+        result["suppression_radius_from_center_only"] = None
+        result["suppression_onset"] = None
+    else:
+        # onset: first radius where resp <= R_center * (1 - perc_thr/100)
+        supp_level_ctr = R_center * (1.0 - perc_thr / 100.0)
+        idx_supp_ctr = np.where(resp_ann <= supp_level_ctr)[0]
+        if idx_supp_ctr.size > 0:
+            supp_radius_ctr = float(radii[idx_supp_ctr[0]])
+            result["suppression_radius_from_center_only"] = supp_radius_ctr
+            result["suppression_onset"] = supp_radius_ctr
+        else:
+            result["suppression_radius_from_center_only"] = None
+            result["suppression_onset"] = None
 
-    if suppression_idx_from_peak.size > 0:
-        suppression_radii_from_peak = radii[suppression_idx_from_peak[0]]
-        # print(f"DEBUG: Suppression radius from peak: {suppression_radii_from_peak} at index {suppression_idx_from_peak[0]}")
+    # ---------- SUPPRESSION VS PEAK ----------
+    if not np.isfinite(peak_resp) or peak_resp <= 0:
+        result["suppression_radius_from_peak"] = None
+    else:
+        # only look on the far side of the peak for suppression
+        supp_level_peak = peak_resp * (1.0 - perc_thr / 100.0)
+        mask_far = (radii > peak_radius)
+        idx_supp_peak = np.where(mask_far & (resp_ann <= supp_level_peak))[0]
+        if idx_supp_peak.size > 0:
+            result["suppression_radius_from_peak"] = float(radii[idx_supp_peak[0]])
+        else:
+            result["suppression_radius_from_peak"] = None
 
-    # Facilitation strength
-    facilitation_strength = ((R_peak - R_ctr) / R_ctr) * 100
+    # ---------- FAR-SURROUND FACILITATION VS PEAK ----------
+    # The article does not define a separate "re-facilitation" onset relative to the peak.
+    # To stay faithful to the methods, we do NOT invent one here.
+    result["facilitation_radius_from_peak"] = None
+
+    # ---------- GLOBAL MIN ----------
+    try:
+        global_min_idx = int(np.nanargmin(resp_ann))
+    except ValueError:
+        global_min_idx = None
+    result["global_min_idx"] = global_min_idx
+
+    return result
 
 
-    return {
-        "R_peak": R_peak,
-        "peak_idx": peak_idx,
-        "global_min_idx": global_min_idx,
-        "suppression_radii_from_center_only": suppression_radii_from_center_only if 'suppression_radii_from_center_only' in locals() else None,
-        "suppression_radii_from_peak": suppression_radii_from_peak if 'suppression_radii_from_peak' in locals() else None,
-        "suppression_onset": suppression_onset if 'suppression_onset' in locals() else None,
-        "facilitation_onset_from_center": facilitation_onset_from_center if 'facilitation_onset_from_center' in locals() else None,
-        "facilitation_strength": facilitation_strength,
-    }
-    
 def analyse_low_contrast_facilitation(radii, responses, R_ctr):
     radii = np.array(radii)
     responses = np.array(responses)
@@ -1536,14 +1750,17 @@ def compute_normalized_annular_ratio(R_outer, R_inner, sRF_high):
 
     return sRF_ratio[~np.isnan(sRF_ratio)]
 
+
+
 # Figure 5A: Histogram of near facilitation strength
 def plot_near_faci_histogram(near_facilitation_strengths):
 
     # Figure out how to best filter outliers - maybe just mention them?
     near_facilitation_strengths = near_facilitation_strengths[near_facilitation_strengths < 200]  # Filter out outliers
+    near_facilitation_strengths = near_facilitation_strengths[near_facilitation_strengths > 0]  # Filter out non-facilitating neurons
 
     plt.figure(figsize=(10, 5))
-    plt.hist(near_facilitation_strengths, bins=100, color="gray", edgecolor="black", 
+    plt.hist(near_facilitation_strengths, bins=10, color="gray", edgecolor="black", 
              weights=np.ones(len(near_facilitation_strengths)) / len(near_facilitation_strengths))
 
     plt.xlabel("Facilitation Strength (%)")
@@ -1560,7 +1777,7 @@ def plot_far_faci_histogram(far_facilitation_strength_H, far_facilitation_streng
     print(far_facilitation_strength_H)
     print(far_facilitation_strength_L)
 
-    num_bins = 8
+    num_bins = 10
     bins = np.linspace(
         min(min(far_facilitation_strength_L), min(far_facilitation_strength_H)), 
         max(max(far_facilitation_strength_L), max(far_facilitation_strength_H)), 
@@ -1581,7 +1798,7 @@ def plot_far_faci_histogram(far_facilitation_strength_H, far_facilitation_streng
         width=bar_width, edgecolor="black", label=["HH", "LH, LL",],  alpha=0.8,
     )
 
-    plt.yscale("log")
+    # plt.yscale("log")
     plt.xlabel("Facilitation Strength")
     plt.ylabel("Percentage of Neurons")
     plt.title("Far Facilitation Strength")
@@ -1591,36 +1808,742 @@ def plot_far_faci_histogram(far_facilitation_strength_H, far_facilitation_streng
 
 
 # Figure 5C: Annulus inner radius at peak response in low contrast
+
 def plot_inner_radius_peak_response_histogram(peaks_L, colors, cond):
+    """
+    Histogram of annulus inner radius at peak response in low contrast.
+    `peaks_L` should already be the R_peak radii for the chosen low-contrast condition.
+    """
+    plt.figure(figsize=(8, 6))
 
-    plt.figure(figsize=(10, 8))
-    plt.hist(peaks_L, bins=50, color=colors[cond], alpha=0.5, label=cond, edgecolor="black", 
-                weights=np.ones(len(peaks_L)) / len(peaks_L))
+    weights = np.ones(len(peaks_L)) / len(peaks_L) if len(peaks_L) > 0 else None
+    plt.hist(
+        peaks_L,
+        bins=10,
+        color=colors[cond],
+        alpha=0.5,
+        edgecolor="black",
+        weights=weights,
+        label=cond,
+    )
 
-    plt.xlabel("Annulus Inner Radius at peak Response (°)")
-    plt.ylabel("Percentage of Neurons")
-    plt.title("Annulus Inner Radius at peak Response (°) in low contrast")
-    plt.axvline(np.mean(peaks_L), color="blue", linestyle="dashed", label="Low contrast Mean")        
+    if len(peaks_L) > 0:
+        plt.axvline(
+            np.mean(peaks_L),
+            color="blue",
+            linestyle="dashed",
+            label="Low-contrast mean",
+        )
+
+    plt.xlabel("Annulus inner radius at peak response (°)")
+    plt.ylabel("Percentage of neurons")
+    plt.title("Annulus inner radius at peak response in low contrast")
     plt.legend()
+    plt.tight_layout()
     plt.savefig("/project/results/facilitation/75C.png")
     plt.close()
 
 
-# Figure 5D: Scatter plot of suppression vs. facilitation distances
-def plot_suppresion_facilitation_distances_scatter(facilitation_onset_from_peak, facilitation_onset_from_center, suppression_onset):
+def _plot_center_based_5D(
+    ax,
+    fac_center,
+    supp_center,
+    summary_5d=None,
+    title="Suppression vs. facilitation distances (center-based)",
+    fac_thresh=10.0,
+):
+    fac_center = np.asarray(fac_center, dtype=float)
+    supp_center = np.asarray(supp_center, dtype=float)
 
-    plt.figure(figsize=(10, 8))
-    plt.scatter(facilitation_onset_from_peak, suppression_onset,
-                    color="red", alpha=0.6, label="from peak")
-    plt.scatter(facilitation_onset_from_center, suppression_onset,
-                    color= "white", alpha=0.6, label="from center", edgecolor="black")
-    plt.xlabel("Annulus Inner Radius at Suppression onset")
-    plt.ylabel("Annulus Inner Radius at Facilitation onset")
-    plt.title("Suppression vs. Facilitation Distances")
-    plt.plot([0, 2.0], [0, 2.0], 'k--') 
+    fac_only = np.array([], dtype=float)
+    supp_only = np.array([], dtype=float)
+    n_tot = n_both = 0
+
+    if summary_5d is not None:
+        fac_only = np.asarray(summary_5d.get("fac_only_center", []), dtype=float)
+        supp_only = np.asarray(summary_5d.get("supp_only_center", []), dtype=float)
+        n_tot = int(summary_5d.get("n_total", 0))
+        n_both = int(summary_5d.get("n_with_both", 0))
+
+    xs_all, ys_all = [], []
+
+    # main points: both fac & supp
+    if fac_center.size > 0:
+        ax.scatter(
+            fac_center,
+            supp_center,
+            facecolor="white",
+            edgecolor="black",
+            alpha=0.9,
+            s=40,
+            label="Fac & supp (center-only)",
+        )
+        xs_all.append(fac_center)
+        ys_all.append(supp_center)
+
+    # include rugs in limits
+    if fac_only.size > 0:
+        xs_all.append(fac_only)
+    if supp_only.size > 0:
+        ys_all.append(supp_only)
+
+    if xs_all and ys_all:
+        xs_all = np.concatenate(xs_all)
+        ys_all = np.concatenate(ys_all)
+        lo = float(min(xs_all.min(), ys_all.min()))
+        hi = float(max(xs_all.max(), ys_all.max()))
+    else:
+        lo, hi = 0.0, 1.0
+
+    if hi <= lo:
+        hi = lo + 1.0
+
+    margin = 0.1 * (hi - lo)
+    lo -= margin
+    hi += margin
+
+    # diagonal
+    ax.plot([lo, hi], [lo, hi], "k--", linewidth=1)
+    ax.set_xlim(lo, hi)
+    ax.set_ylim(lo, hi)
+
+    span = hi - lo
+    y0 = lo
+    y1 = lo + 0.04 * span
+    x0 = lo
+    x1 = lo + 0.04 * span
+
+    # fac-only rugs
+    if fac_only.size > 0:
+        for x in fac_only:
+            ax.vlines(x, y0, y1, colors="darkgray", alpha=0.7, linewidth=1)
+
+    # supp-only rugs
+    if supp_only.size > 0:
+        for y in supp_only:
+            ax.hlines(y, x0, x1, colors="darkgray", alpha=0.7, linewidth=1)
+
+    # legend
+    legend_handles, legend_labels = [], []
+
+    if fac_center.size > 0:
+        legend_handles.append(
+            Line2D([], [], marker="o", linestyle="None",
+                   markerfacecolor="white", markeredgecolor="black")
+        )
+        legend_labels.append("Fac & supp (center-only)")
+
+    if fac_only.size > 0:
+        legend_handles.append(Line2D([], [], linestyle="-", color="darkgray"))
+        legend_labels.append(f"Fac only (no supp), n={fac_only.size}")
+
+    if supp_only.size > 0:
+        legend_handles.append(Line2D([], [], linestyle="-", color="darkgray"))
+        legend_labels.append(f"Supp only (no fac ≥10%), n={supp_only.size}")
+
+    if legend_handles:
+        ax.legend(legend_handles, legend_labels, loc="upper right", fontsize=8)
+
+    # text summary – recompute "none" from the categories
+    if summary_5d is not None and n_tot > 0:
+        n_fac_only = fac_only.size
+        n_supp_only = supp_only.size
+        n_none_eff = max(n_tot - (n_both + n_fac_only + n_supp_only), 0)
+
+        txt = (
+            f"n_total={n_tot}\n"
+            f"both={n_both}\n"
+            f"fac-only={n_fac_only}\n"
+            f"supp-only={n_supp_only}\n"
+            f"none={n_none_eff}"
+        )
+        ax.text(
+            0.02, 0.98, txt,
+            transform=ax.transAxes,
+            ha="left", va="top",
+            fontsize=8,
+            bbox=dict(facecolor="white", alpha=0.7, edgecolor="none"),
+        )
+
+    ax.set_xlabel("Facilitation onset radius (°)")
+    ax.set_ylabel("Suppression onset radius (°)")
+    ax.set_title(title)
+    ax.grid(True)
+
+def plot_suppresion_facilitation_distances_scatter_panel(
+    fac_center,
+    supp_center,
+    fac_peak=None,
+    supp_peak=None,
+    summary_5d=None,
+    fac_thresh=10.0,
+):
+    """
+    Make a 1x2 panel:
+
+      Left:  center-based onsets (Fig. 5D-style)
+             - uses fac_center, supp_center and summary_5d
+      Right: peak-based far-surround onsets
+             - uses fac_peak, supp_peak (subset of neurons where both are defined)
+
+    All radii are absolute (degrees); what differs is how onsets were *defined*
+    (relative to center vs relative to peak).
+    """
+
+    fig, axes = plt.subplots(1, 2, figsize=(14, 6), sharex=True, sharey=True)
+
+    # ---- left: center-based (with rugs & counts) ----
+    _plot_center_based_5D(
+        axes[0],
+        fac_center=fac_center,
+        supp_center=supp_center,
+        summary_5d=summary_5d,
+        fac_thresh=fac_thresh,
+        title="Far-surround onsets\ndefined relative to center",
+    )
+
+    # ---- right: peak-based ----
+    ax = axes[1]
+
+    fac_peak = np.asarray([] if fac_peak is None else fac_peak, dtype=float)
+    supp_peak = np.asarray([] if supp_peak is None else supp_peak, dtype=float)
+
+    if fac_peak.size > 0 and supp_peak.size > 0:
+        ax.scatter(
+            fac_peak,
+            supp_peak,
+            color="gray",
+            alpha=0.7,
+            s=40,
+            label="Fac & supp (peak-based)",
+        )
+
+        # share limits with left subplot by using same min/max
+        xs_all = np.concatenate(
+            [np.asarray(fac_center, float), fac_peak]
+        )
+        ys_all = np.concatenate(
+            [np.asarray(supp_center, float), supp_peak]
+        )
+        lo = float(min(xs_all.min(), ys_all.min()))
+        hi = float(max(xs_all.max(), ys_all.max()))
+        if hi <= lo:
+            hi = lo + 1.0
+        margin = 0.1 * (hi - lo)
+        lo -= margin
+        hi += margin
+        axes[0].set_xlim(lo, hi)
+        axes[0].set_ylim(lo, hi)
+        ax.set_xlim(lo, hi)
+        ax.set_ylim(lo, hi)
+
+        # diagonal
+        ax.plot([lo, hi], [lo, hi], "k--", linewidth=1)
+
+        ax.legend(loc="upper right", fontsize=8)
+
+    ax.set_xlabel("Facilitation onset radius (°)")
+    ax.set_ylabel("Suppression onset radius (°)")
+    ax.set_title("Far-surround onsets\ndefined relative to peak")
+    ax.grid(True)
+
+    fig.suptitle("Suppression vs. facilitation distances\ncenter-based vs peak-based", fontsize=14)
+    fig.tight_layout(rect=[0, 0, 1, 0.95])
+    plt.savefig("/project/results/facilitation/75D_center_vs_peak_panel.png")
+    plt.close(fig)
+
+
+# =========================================================
+# 5D scatter – center-based + peak-based panel
+# =========================================================
+
+def find_facilitation_annular_tunning_curve(resp_ann, R_center, radii, perc_thr=10.0):
+    """
+    Analyse annular tuning curve.
+
+    resp_ann : 1D array-like
+        Annular responses (raw or fit).
+    R_center : float
+        Center-only response (same contrast).
+    radii    : 1D array-like
+        Inner radii of annulus (same shape as resp_ann).
+
+    perc_thr : float
+        Percentage threshold for facilitation/suppression (default 10%).
+    """
+    resp_ann = np.asarray(resp_ann, dtype=float)
+    radii    = np.asarray(radii,    dtype=float)
+
+    # Sanity checks
+    if resp_ann.ndim == 0 or radii.ndim == 0:
+        raise ValueError(
+            f"find_facilitation_annular_tunning_curve: got scalar(s); "
+            f"resp_ann.ndim={resp_ann.ndim}, radii.ndim={radii.ndim}"
+        )
+    if resp_ann.shape != radii.shape:
+        raise ValueError(
+            f"find_facilitation_annular_tunning_curve: shape mismatch: "
+            f"resp_ann.shape={resp_ann.shape}, radii.shape={radii.shape}"
+        )
+
+    result = {}
+
+    # ---------- PEAK (absolute maximum of annular response) ----------
+    peak_idx    = int(np.nanargmax(resp_ann))
+    peak_resp   = float(resp_ann[peak_idx])     # response at peak
+    peak_radius = float(radii[peak_idx])        # radius at peak
+
+    # Downstream code historically uses R_peak as *radius*
+    result["R_peak"]   = peak_radius
+    result["peak_idx"] = peak_idx
+
+    # ================================================================
+    # CENTER-BASED DEFINITIONS (match text in article)
+    # ================================================================
+    if R_center is None or not np.isfinite(R_center) or R_center <= 0:
+        result["facilitation_strength"] = None
+        result["facilitation_radius_from_center_only"] = None
+        result["suppression_radius_from_center_only"] = None
+        result["suppression_onset"] = None
+    else:
+        # --- facilitation strength: 100 * (R_peak - R_ctr) / R_ctr
+        fac_strength = 100.0 * (peak_resp - R_center) / R_center
+        result["facilitation_strength"] = float(fac_strength)
+
+        # --- facilitation onset: first radius with resp >= R_ctr*(1 + thr)
+        rel_change_center = 100.0 * (resp_ann - R_center) / R_center
+        idx_fac = np.where(rel_change_center >= perc_thr)[0]
+        if idx_fac.size > 0:
+            result["facilitation_radius_from_center_only"] = float(radii[idx_fac[0]])
+        else:
+            result["facilitation_radius_from_center_only"] = None
+
+        # --- suppression onset vs center: first radius with resp <= R_ctr*(1 - thr)
+        rel_supp_center = 100.0 * (R_center - resp_ann) / R_center  # positive = suppression
+        idx_supp = np.where(rel_supp_center >= perc_thr)[0]
+        if idx_supp.size > 0:
+            supp_radius = float(radii[idx_supp[0]])
+            result["suppression_radius_from_center_only"] = supp_radius
+            result["suppression_onset"] = supp_radius
+        else:
+            result["suppression_radius_from_center_only"] = None
+            result["suppression_onset"] = None
+
+    # ================================================================
+    # PEAK-BASED DEFINITIONS (our extra analysis)
+    # ================================================================
+    # We look only *after* the peak radius.
+    if not np.isfinite(peak_resp) or peak_resp <= 0:
+        result["suppression_radius_from_peak"] = None
+        result["facilitation_radius_from_peak"] = None
+    else:
+        # Drop from peak in %
+        rel_supp_peak = 100.0 * (peak_resp - resp_ann) / peak_resp
+
+        # --- suppression onset vs peak: first radius > peak_radius with drop ≥ perc_thr
+        idx_supp_peak = np.where(
+            (radii > peak_radius) & (rel_supp_peak >= perc_thr)
+        )[0]
+
+        if idx_supp_peak.size > 0:
+            first_supp_idx = idx_supp_peak[0]
+            result["suppression_radius_from_peak"] = float(radii[first_supp_idx])
+
+            # --- re-fac vs peak: first radius *after suppression onset*
+            # where drop from peak is <= perc_thr again (i.e. recovered within thr% of peak)
+            idx_refac = np.where(
+                (np.arange(resp_ann.size) > first_supp_idx) &
+                (rel_supp_peak <= perc_thr)
+            )[0]
+
+            if idx_refac.size > 0:
+                result["facilitation_radius_from_peak"] = float(radii[idx_refac[0]])
+            else:
+                result["facilitation_radius_from_peak"] = None
+        else:
+            result["suppression_radius_from_peak"] = None
+            result["facilitation_radius_from_peak"] = None
+
+    # ---------- GLOBAL MIN (just for bookkeeping) ----------
+    try:
+        global_min_idx = int(np.nanargmin(resp_ann))
+    except ValueError:
+        global_min_idx = None
+    result["global_min_idx"] = global_min_idx
+
+    return result
+
+def summarize_5D_population(results_annular_tuning_curves, shared_neurons, fac_thresh=10.0):
+    """
+    Classify neurons according to whether they show >= fac_thresh % far-surround
+    facilitation and/or have a suppression radius, based on the *best* low-contrast
+    annulus condition (LH vs LL).
+    """
+
+    fac_only_center = []
+    supp_only_center = []
+    n_both = 0
+    n_none = 0
+
+    # debug počítadla
+    n_no_dict_LH_LL = 0
+    n_fac_nan_or_missing = 0
+    n_fac_lt_0 = 0
+    n_fac_0_to_thr = 0
+    n_fac_ge_thr_missing_fcenter = 0
+    n_fac_ge_thr_missing_scenter = 0
+
+    all_fac_strengths = []
+
+    for neuron in shared_neurons:
+        # pick best low-contrast condition (LH / LL) by facilitation_strength
+        best_res = None
+        best_score = -np.inf
+
+        for cond in ["LH", "LL"]:
+            res = results_annular_tuning_curves["fit"][cond].get(neuron, None)
+            if not isinstance(res, dict):
+                continue
+
+            fac_val = res.get("facilitation_strength")
+            if fac_val is None or not np.isfinite(fac_val):
+                fac_val = res.get("facilitation_strength_clipped_0")
+
+            if fac_val is None or not np.isfinite(fac_val):
+                continue
+
+            fac_val = float(fac_val)
+            if best_res is None or fac_val > best_score:
+                best_res = res
+                best_score = fac_val
+
+        if best_res is None:
+            n_no_dict_LH_LL += 1
+            n_none += 1
+            continue
+
+        fac_val = best_res.get("facilitation_strength")
+        if fac_val is None or not np.isfinite(fac_val):
+            fac_val = best_res.get("facilitation_strength_clipped_0")
+
+        if fac_val is None or not np.isfinite(fac_val):
+            n_fac_nan_or_missing += 1
+            n_none += 1
+            continue
+
+        fac_val = float(fac_val)
+        all_fac_strengths.append(fac_val)
+
+        f_center = best_res.get("facilitation_radius_from_center_only")
+        s_center = best_res.get("suppression_radius_from_center_only")
+
+        if fac_val < 0:
+            n_fac_lt_0 += 1
+            # negativní „facilitace“ – považujme jako žádná facil.
+            has_fac = False
+        elif fac_val < fac_thresh:
+            n_fac_0_to_thr += 1
+            has_fac = False
+        else:
+            # fac >= threshold, teď záleží na radiích
+            if f_center is None or not np.isfinite(f_center):
+                n_fac_ge_thr_missing_fcenter += 1
+                has_fac = False
+            else:
+                has_fac = True
+
+        has_supp = (s_center is not None and np.isfinite(s_center))
+
+        if has_fac and has_supp:
+            n_both += 1
+        elif has_fac and not has_supp:
+            fac_only_center.append(float(f_center))
+            n_fac_ge_thr_missing_scenter += 1
+        elif has_supp and not has_fac:
+            supp_only_center.append(float(s_center))
+            # tady důvod: buď fac < thr, nebo chybí f_center
+            n_none += 1  # započítáme do none+supp-only statistiky
+        else:
+            n_none += 1
+
+    summary = {
+        "fac_only_center": np.array(fac_only_center, dtype=np.float64),
+        "supp_only_center": np.array(supp_only_center, dtype=np.float64),
+        "n_with_both": n_both,
+        "n_none": n_none,
+        "n_total": len(shared_neurons),
+    }
+
+    print(f"\n[5D SUMMARY] neuron categories (center-based, fac ≥ {fac_thresh:.1f} %):")
+    print(f"  total shared_neurons          : {summary['n_total']}")
+    print(f"  both fac & supp               : {summary['n_with_both']}")
+    print(f"  fac-only (fac≥thr, no supp)   : {summary['fac_only_center'].size}")
+    print(f"  supp-only (supp, fac<thr)     : {summary['supp_only_center'].size}")
+    print(f"  none                          : {summary['n_none']}")
+
+    # detailní debug: proč jsou kde
+    print("\n[5D DEBUG] breakdown of reasons:")
+    print(f"  no usable LH/LL dict          : {n_no_dict_LH_LL}")
+    print(f"  fac NaN / missing             : {n_fac_nan_or_missing}")
+    print(f"  fac < 0                       : {n_fac_lt_0}")
+    print(f"  0 <= fac < {fac_thresh:.1f}          : {n_fac_0_to_thr}")
+    print(f"  fac ≥ {fac_thresh:.1f} but missing f_center : {n_fac_ge_thr_missing_fcenter}")
+    print(f"  fac ≥ {fac_thresh:.1f} with f_center but no s_center "
+          f"(=> fac-only)     : {n_fac_ge_thr_missing_scenter}")
+
+    if all_fac_strengths:
+        all_fac_strengths = np.array(all_fac_strengths, float)
+        print("\n[5D DEBUG] facilitation_strength distribution (all usable LH/LL):")
+        print(f"  n={all_fac_strengths.size}, "
+              f"min={all_fac_strengths.min():.2f}, "
+              f"median={np.median(all_fac_strengths):.2f}, "
+              f"max={all_fac_strengths.max():.2f}")
+    else:
+        print("\n[5D DEBUG] no usable facilitation_strength values at all.")
+
+    return summary
+
+def build_5D_data(results_annular_tuning_curves, shared_neurons, fac_thresh=10.0):
+    """
+    Extract per-neuron radii for 5D-style plots.
+
+    Returns:
+        fac_center : array of facilitation-onset radii relative to center
+        supp_center: array of suppression-onset radii relative to center
+        fac_peak   : array of re-facilitation-onset radii relative to peak
+        supp_peak  : array of suppression-onset radii relative to peak
+    """
+    fac_center = []
+    supp_center = []
+    fac_peak = []
+    supp_peak = []
+
+    # debug počítadla
+    n_considered = 0
+    n_with_best_cond = 0
+    n_pass_fac_thresh = 0
+    n_pass_center_both = 0
+
+    n_any_supp_peak = 0
+    n_any_fac_peak = 0
+    n_peak_both = 0
+
+    for neuron in shared_neurons:
+        n_considered += 1
+
+        best_res = None
+        best_fac = -np.inf
+
+        for cond in ["LH", "LL"]:
+            res = results_annular_tuning_curves["fit"][cond].get(neuron, None)
+            if not isinstance(res, dict):
+                continue
+
+            fac_val = res.get("facilitation_strength")
+            if fac_val is None or not np.isfinite(fac_val):
+                fac_val = res.get("facilitation_strength_clipped_0")
+
+            if fac_val is None or not np.isfinite(fac_val):
+                continue
+
+            fac_val = float(fac_val)
+            if fac_val > best_fac:
+                best_fac = fac_val
+                best_res = res
+
+        if best_res is None:
+            continue
+
+        n_with_best_cond += 1
+
+        fac_strength = best_res.get("facilitation_strength")
+        if fac_strength is None or not np.isfinite(fac_strength):
+            fac_strength = best_res.get("facilitation_strength_clipped_0")
+
+        if fac_strength is None or not np.isfinite(fac_strength):
+            continue
+
+        fac_strength = float(fac_strength)
+
+        f_center = best_res.get("facilitation_radius_from_center_only")
+        s_center = best_res.get("suppression_radius_from_center_only")
+        f_pk     = best_res.get("facilitation_radius_from_peak")
+        s_pk     = best_res.get("suppression_radius_from_peak")
+
+        # center-based inclusion
+        if fac_strength >= fac_thresh:
+            n_pass_fac_thresh += 1
+            if (f_center is not None and np.isfinite(f_center) and
+                s_center is not None and np.isfinite(s_center)):
+                fac_center.append(float(f_center))
+                supp_center.append(float(s_center))
+                n_pass_center_both += 1
+
+        # peak-based debug (nezávisle na thresholdu, čistě přítomnost)
+        if s_pk is not None and np.isfinite(s_pk):
+            n_any_supp_peak += 1
+        if f_pk is not None and np.isfinite(f_pk):
+            n_any_fac_peak += 1
+        if (s_pk is not None and np.isfinite(s_pk) and
+            f_pk is not None and np.isfinite(f_pk)):
+            supp_peak.append(float(s_pk))
+            fac_peak.append(float(f_pk))
+            n_peak_both += 1
+
+    fac_center = np.array(fac_center, dtype=np.float64)
+    supp_center = np.array(supp_center, dtype=np.float64)
+    fac_peak = np.array(fac_peak, dtype=np.float64)
+    supp_peak = np.array(supp_peak, dtype=np.float64)
+
+    print("\n[5D BUILD] summary:")
+    print(f"  neurons considered               : {n_considered}")
+    print(f"  with usable LH/LL & fac_strength : {n_with_best_cond}")
+    print(f"  fac_strength ≥ {fac_thresh:.1f}             : {n_pass_fac_thresh}")
+    print(f"  (fac≥thr & f_center & s_center)  : {n_pass_center_both}")
+    print(f"  supp_radius_from_peak present    : {n_any_supp_peak}")
+    print(f"  fac_radius_from_peak present     : {n_any_fac_peak}")
+    print(f"  BOTH peak-based radii present    : {n_peak_both}")
+    print(f"  fac_center array size            : {fac_center.size}")
+    print(f"  supp_center array size           : {supp_center.size}")
+    print(f"  fac_peak array size              : {fac_peak.size}")
+    print(f"  supp_peak array size             : {supp_peak.size}")
+
+    return fac_center, supp_center, fac_peak, supp_peak
+
+
+def collect_best_lowcontrast_fac_strengths(results_annular_tuning_curves, shared_neurons):
+    fac_vals = []
+
+    for neuron in shared_neurons:
+        best_fac = None
+        for cond in ["LH", "LL"]:
+            res = results_annular_tuning_curves["fit"][cond].get(neuron, None)
+            if not isinstance(res, dict):
+                continue
+            fac = res.get("facilitation_strength_clipped_0")
+            if fac is None or not np.isfinite(fac):
+                continue
+            if best_fac is None or fac > best_fac:
+                best_fac = fac
+        if best_fac is not None:
+            fac_vals.append(float(best_fac))
+
+    return np.array(fac_vals, dtype=np.float64)
+
+
+def plot_fac_strength_histogram(results_annular_tuning_curves, shared_neurons):
+    fac_vals = collect_best_lowcontrast_fac_strengths(
+        results_annular_tuning_curves, shared_neurons
+    )
+
+    if fac_vals.size == 0:
+        print("[FAC HIST] No facilitation strengths to plot.")
+        return
+
+    plt.figure(figsize=(8, 6))
+    plt.hist(fac_vals, bins=50, edgecolor="black", alpha=0.7)
+    plt.axvline(10.0, color="red", linestyle="--", label="10% threshold")
+
+    plt.xlabel("Best low-contrast facilitation strength (% vs center)")
+    plt.ylabel("Number of neurons")
+    plt.title("Distribution of far-surround facilitation strengths")
     plt.legend()
-    plt.savefig("/project/results/facilitation/75D.png")
+
+    plt.tight_layout()
+    plt.savefig("/project/results/facilitation/fac_strength_hist.png")
     plt.close()
+
+    print(
+        f"[FAC HIST] n={fac_vals.size}, "
+        f"min={fac_vals.min():.2f}, median={np.median(fac_vals):.2f}, max={fac_vals.max():.2f}"
+    )
+
+def collect_suppression_onsets_center(results_annular_tuning_curves, shared_neurons):
+    supp_radii = []
+
+    for neuron in shared_neurons:
+        # vezmeme zase best low-contrast LH/LL
+        best_res = None
+        best_score = -np.inf
+
+        for cond in ["LH", "LL"]:
+            res = results_annular_tuning_curves["fit"][cond].get(neuron, None)
+            if not isinstance(res, dict):
+                continue
+            fac = res.get("facilitation_strength_clipped_0")
+            score = fac if (fac is not None and np.isfinite(fac)) else -np.inf
+            if best_res is None or score > best_score:
+                best_res = res
+                best_score = score
+
+        if best_res is None:
+            continue
+
+        s_center = best_res.get("suppression_radius_from_center_only")
+        if s_center is not None and np.isfinite(s_center):
+            supp_radii.append(float(s_center))
+
+    return np.array(supp_radii, dtype=np.float64)
+
+
+def plot_suppression_onset_histogram(results_annular_tuning_curves, shared_neurons):
+    supp_radii = collect_suppression_onsets_center(
+        results_annular_tuning_curves, shared_neurons
+    )
+
+    if supp_radii.size == 0:
+        print("[SUPP HIST] No suppression radii to plot.")
+        return
+
+    plt.figure(figsize=(8, 6))
+    plt.hist(supp_radii, bins=30, edgecolor="black", alpha=0.7)
+
+    plt.xlabel("Suppression onset radius vs center (°)")
+    plt.ylabel("Number of neurons")
+    plt.title("Distribution of suppression onset radii (center-based)")
+
+    plt.axvline(0.05, color="red", linestyle="--", label="0.05° bin")
+    plt.legend()
+
+    plt.tight_layout()
+    plt.savefig("/project/results/facilitation/supp_onset_hist.png")
+    plt.close()
+
+    print(
+        f"[SUPP HIST] n={supp_radii.size}, "
+        f"min={supp_radii.min():.4f}, median={np.median(supp_radii):.4f}, "
+        f"max={supp_radii.max():.4f}"
+    )
+
+def plot_5d_category_counts(summary_5d):
+    counts = {
+        "both": summary_5d["n_with_both"],
+        "fac-only": summary_5d["fac_only_center"].size,
+        "supp-only": summary_5d["supp_only_center"].size,
+        "none": summary_5d["n_none"],
+    }
+
+    labels = list(counts.keys())
+    values = [counts[k] for k in labels]
+
+    plt.figure(figsize=(6, 5))
+    plt.bar(labels, values, edgecolor="black", alpha=0.7)
+
+    plt.ylabel("Number of neurons")
+    plt.title("Neuron categories (best low-contrast annulus)")
+
+    for i, v in enumerate(values):
+        plt.text(i, v + 0.5, str(v), ha="center", va="bottom")
+
+    plt.tight_layout()
+    plt.savefig("/project/results/facilitation/5D_categories_bar.png")
+    plt.close()
+
+    print("[5D CATEGORIES] counts:", counts)
+
+
+# Figure 5D: Scatter plot of suppression vs. facilitation distances
+
 
 # Figure 6A Scatter plot of sRFhigh vs. sRFlow 
 def plot_srfhigh_srflow_scatter(sRFhigh_values, sRFlow_values):
@@ -1644,7 +2567,7 @@ def plot_srfhigh_srflow_histogram(sRF_ratios):
     plt.axvline(np.mean(sRF_ratios), color="blue", linestyle="dashed", label="SRF ratios Mean")        
 
     plt.xlabel("sRFlow / sRFhigh")
-    plt.xticks([1,2,3,4,5,7,9])
+    plt.xticks([1,2,3,4])
     plt.ylabel("Percentage of Neurons")
     plt.title("Contrast-Dependent RF Expansion")
     plt.savefig("/project/results/facilitation/76B.png")
@@ -1665,53 +2588,71 @@ def plot_suppresion_onset_scatter_plot(HH_width_center_only, LH_center_only, LL_
     plt.close()
 
 # Figure 6D: Histogram of normalized annulus width at suprresion onset
-def plot_normalised_annulus_widths_suppresion_onset_histogram(normalized_annular_ratio_at_suprresion_onset_LH,
-                                                              normalized_annular_ratio_at_suprresion_onset_LL,
-                                                              colors):
+def plot_normalised_annulus_widths_suppresion_onset_histogram(
+    ratios_LH,
+    ratios_LL,
+    colors,
+):
+    ratios_LH = np.asarray(ratios_LH, float)
+    ratios_LL = np.asarray(ratios_LL, float)
+
+    bins = np.array([0, 0.5, 1, 1.5, 2, 3, 4, 6, 8])
 
     plt.figure(figsize=(10, 5))
-    plt.hist([normalized_annular_ratio_at_suprresion_onset_LH, normalized_annular_ratio_at_suprresion_onset_LL], bins=10, color=[colors["LH"], colors["LL"]], edgecolor="black", label=["LH", "LL"],
-                weights=[np.ones(len(normalized_annular_ratio_at_suprresion_onset_LH)) / len(normalized_annular_ratio_at_suprresion_onset_LH),
-                    np.ones(len(normalized_annular_ratio_at_suprresion_onset_LL)) / len(normalized_annular_ratio_at_suprresion_onset_LL),])        
-    plt.xlabel("Far surround / sRFhigh")
-    plt.ylabel("Percentage of Neurons")
+
+    plt.hist(
+        ratios_LH,
+        bins=bins,
+        histtype="stepfilled",
+        alpha=0.6,
+        color=colors["LH"],
+        label=f"LH (n={len(ratios_LH)})",
+        density=True, 
+    )
+
+    plt.hist(
+        ratios_LL,
+        bins=bins,
+        histtype="stepfilled",
+        alpha=0.6,
+        color=colors["LL"],
+        label=f"LL (n={len(ratios_LL)})",
+        density=True,
+    )
+
+    plt.axvline(1.0, color="k", linestyle="--", linewidth=1)
+    plt.text(1.02, plt.ylim()[1]*0.9, "sRF_high", fontsize=9)
+
+    plt.xlabel("Far surround / sRF_high")
+    plt.ylabel("Probability density")
     plt.title("Normalized Suppression Onset")
     plt.legend()
+    plt.grid(True)
+
     plt.savefig("/project/results/facilitation/76D.png")
     plt.close()
+
 
 def store_annular_tuning_results(results_dict, result_annular_tunning, dtype, cond, neuron_id):
     if result_annular_tunning is None:
         return results_dict
 
-    # Get neuron entry or create if missing
     neuron_results = results_dict[dtype][cond].setdefault(neuron_id, {})
 
-    # Add basic metrics
-
-    neuron_results["facilitation_onset_from_center"] = result_annular_tunning.get("facilitation_onset_from_center")
-    neuron_results["facilitation_onset_from_peak"] = result_annular_tunning.get("facilitation_onset_from_peak")
-    neuron_results["suppression_onset"] = result_annular_tunning.get("suppression_onset")
-    neuron_results["facilitation_strength"] = result_annular_tunning.get("facilitation_strength")
-    neuron_results["peak_idx"] = result_annular_tunning.get("peak_idx")
-
-    R_peak = result_annular_tunning.get("R_peak")
-    if R_peak is not None:
-        neuron_results["R_peak"] = R_peak
-        neuron_results["suppression_radius_from_center_only"] = result_annular_tunning.get("suppression_radius_from_center_only")
-        neuron_results["suppression_radius_from_peak"] = result_annular_tunning.get("suppression_radius_from_peak")
+    for key in [
+        "R_peak",
+        "peak_idx",
+        "global_min_idx",
+        "suppression_radius_from_center_only",
+        "suppression_radius_from_peak",
+        "suppression_onset",
+        "facilitation_radius_from_center_only",
+        "facilitation_radius_from_peak",
+        "facilitation_strength",
+    ]:
+        neuron_results[key] = result_annular_tunning.get(key)
 
     return results_dict
-
-
-
-
-
-
-
-
-
-
 
         # # Curve analysis - optional
 

@@ -9,8 +9,7 @@ import math
 ## Utils
 from classical_exps.functions.analysis.a_filtering_fucntions import *
 from classical_exps.functions.utils import *
-from classical_exps.functions.experiments import get_GSF_surround_AMRF
-## Plots
+from classical_exps.functions.article_1.common.metrics_size import get_GSF_surround_AMRF## Plots
 import matplotlib.pyplot as plt
 from matplotlib.ticker import ScalarFormatter
 from classical_exps.functions.utils import plot_img

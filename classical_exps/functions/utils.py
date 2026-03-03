@@ -512,10 +512,12 @@ def get_center_surround_stimulus(
     ## Merge the center and the surround
     image = grating_center + grating_ring
 
+    image_denormalised = image.clone()
+
     ## Convert to the right shape for the model
     image = rescale(image,-1,1,pixel_min,pixel_max).reshape(1,*img_res).to(device)
 
-    return image
+    return image, image_denormalised
 
 def plot_img(img, pixel_min, pixel_max, title = None, name = None, showfig=True):
     ''' This function displays an image

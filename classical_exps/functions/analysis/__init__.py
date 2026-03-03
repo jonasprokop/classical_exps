@@ -1,8 +1,11 @@
-from .a_filtering_fucntions import *
-from .b_1st_article import *
-from .c_2nd_article import *
-from .d_3th_article import *
-from .e_4th_article import *
-from .f_5st_article import *
-from .g_6st_article import *
-from .g_6st_article import *
+"""
+classical_exps.functions
+
+Intentionally minimal package initializer.
+
+Do NOT import submodules here:
+- prevents heavy side effects (loading article pipelines on unrelated imports)
+- prevents circular imports
+"""
+
+__all__: list[str] = []

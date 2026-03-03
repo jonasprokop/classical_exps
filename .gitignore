@@ -11,16 +11,19 @@ dist/
 .env
 
 # Data/outputs
+core
 *.csv
 *.h5
 *.pickle
+
 
 # Local outputs
 results/
 classical_exps/plots/
 run_pipeline/objects/shareStim_NN13/**
+legacy/
 
-# Project scripts we don't want tracked
+# Project scripts
 classical_exps/save_functions*.py
 classical_exps/old_functions_3.py
 surroundmodulation/utils/gratings.py

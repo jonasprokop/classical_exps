@@ -51,7 +51,8 @@ def get_all_grating_parameters_with_modulator(
     pixel_max=2.1919,
     device=None,
     size=2.67,
-    save_stimuli=True
+    save_stimuli=False,
+    save_stimuli_=True
 ):
     '''
     Function to first determine preferred grating parameters using find_preferred_grating_parameters_full_field
@@ -186,7 +187,24 @@ def get_all_grating_parameters_with_modulator(
                     fig.colorbar(im, ax=ax)
                     plt.savefig(directory + f"{neuron}_carrier_apllied_contrast.png")
                     plt.close()
-            
+
+
+                # Structured grid of stimuli to visualize
+                sampled_orientations = modulator_orientations
+                sampled_sf_mult = modulator_spatial_frequencies_multiplicators  # use as is if small
+                target_phases = [0, np.pi/2, np.pi, 3*np.pi/2]
+                sampled_phases = np.array([
+                    modulator_phases[np.argmin(np.abs(modulator_phases - t))]
+                    for t in target_phases
+                ])
+
+                # Create set of sampled combinations
+                sampled_grid = set(
+                    (float(o), float(sf), float(p))
+                    for o in sampled_orientations
+                    for sf in sampled_sf_mult
+                    for p in sampled_phases
+                    )
 
                 for relative_ori in modulator_orientations:
                     for modulator_spatial_frequencies_multiplicator in modulator_spatial_frequencies_multiplicators:
@@ -268,6 +286,17 @@ def get_all_grating_parameters_with_modulator(
                                     plt.savefig(directory + f"{neuron}_grating_{relative_ori}_{mod_sf}_{mod_phase}_target_scale.png")
                                     plt.close()
 
+                                # Save sampled combinations for panel
+                                if save_stimuli_ and (float(relative_ori) in sampled_orientations and float(mod_phase) in sampled_phases):
+                                    if 'panel_grid' not in locals():
+                                        panel_grid = []
+                                    panel_grid.append((
+                                        grating.squeeze().detach().cpu().numpy(),
+                                        relative_ori, mod_sf, mod_phase
+                                    ))
+
+                                
+
                                 # Evaluate response
                                 resp = single_model(grating)
                                 # Create the entry for this modulator combination
@@ -282,3 +311,39 @@ def get_all_grating_parameters_with_modulator(
 
                             # Save the new response to the dataset
                                 dataset[-1] = response_data
+
+
+                # Save panel samples if requested
+                # Show or save a structured grid panel
+                if save_stimuli_ and 'panel_grid' in locals():
+                    # Sort samples into a 2D matrix by orientation and phase
+                    panel_grid.sort(key=lambda x: (sampled_orientations.tolist().index(x[1]), sampled_phases.tolist().index(x[3])))
+
+                    nrows = len(sampled_phases)
+                    ncols = len(sampled_orientations)
+                    fig, axes = plt.subplots(nrows, ncols, figsize=(3*ncols, 3*nrows))
+
+                    for idx, (img, ori, sf, ph) in enumerate(panel_grid):
+                        row = sampled_phases.tolist().index(ph)
+                        col = sampled_orientations.tolist().index(ori)
+                        ax = axes[row, col]
+                        ax.imshow(img, cmap='gray', vmin=pixel_min, vmax=pixel_max)
+                        ax.set_title(f"ϕ={np.rad2deg(ph):.0f}°\nori={np.rad2deg(ori):.0f}°")
+                        ax.axis('off')
+
+                    fig.suptitle(
+                        f"""Stimulus Grid for {neuron}, with perferred parameters of the carrier: 
+                        ORI = {np.rad2deg(preferred_ori):.0f}°, SF = {preferred_sf:.0f}, phase = {np.rad2deg(preferred_phase):.0f}°""",
+                        fontsize=18,
+                        ha='center'
+                    
+                    )
+                    plt.subplots_adjust(top=0.75)  # Leave room for suptitle
+                    plt.tight_layout()       
+                    os.makedirs("/project/results/modulation/stimulus_grids/", exist_ok=True)
+                    plt.savefig(f"/project/results/modulation/stimulus_grids/stimulus_panel_grid_neuron_{neuron}.png")
+                    plt.close()
+
+
+
+

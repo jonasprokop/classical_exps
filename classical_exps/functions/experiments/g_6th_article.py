@@ -24,7 +24,7 @@ import cv2
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-from classical_exps.functions.experiments.b_1st_article import get_size_tuning_curves, get_GSF_surround_AMRF
+from  classical_exps.functions.article_1.experiments.size_tuning import get_size_tuning_curves, get_GSF_surround_AMRF
 
 
 ###############################################################################
@@ -231,10 +231,6 @@ def get_surround_contrast_facilitation(
 
                 nxs_dict[neuron] = nx   
                 nys_dict[neuron] = ny   
-
-
-
-                continue
 
 
                 percentage_of_guassian_energy = percentages_of_gaussian_energies_2D[sigma]

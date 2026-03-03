@@ -8,11 +8,8 @@ import torch
 import math
 ## Utils
 from classical_exps.functions.utils import *
-from classical_exps.functions.experiments import get_GSF_surround_AMRF
-## Plots
 import matplotlib.pyplot as plt
 from matplotlib.ticker import ScalarFormatter
-from classical_exps.functions.utils import plot_img
 ## Data storage
 import h5py
 from collections import Counter
@@ -64,8 +61,11 @@ def filter_fitting_error(
             
             ## name of the dataset 
             neuron = f"neuron_{neuron_id}"
-            error = file[group_path][neuron][:][2]
-
+            print(file[group_path][neuron][:])
+            x0_opt, y0_opt, sigma_x_opt, sigma_y_opt, rho_opt, mse, r2 = file[group_path][neuron][:]
+            error = mse
+            
+            print(error)
             ## keep the neuron if its error is below the threshold
             if error < fit_err_thresh :
                 filtered_neuron_ids.append(neuron_id)
@@ -129,7 +129,7 @@ def filter_low_supp_neurons(
             
             ## name of the dataset 
             neuron = f"neuron_{neuron_id}"
-            SI = file[group_path][neuron][:][4]
+            SI = file[group_path][neuron][:][3]
 
             ## keep the neuron if its error is below the threshold
             if SI > supp_thresh :

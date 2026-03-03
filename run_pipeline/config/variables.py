@@ -42,6 +42,7 @@ all_neurons_model = v1_convnext_ensemble
 ## Chose the indices of the neurons to work with
 n = 458
 neuron_ids = np.arange(n) ## Because 458 outputs in our model
+neuron_ids = neuron_ids[neuron_ids<50] ## Just to test the pipeline with a smaller number of neurons, can be removed to run with all neurons
 corrs = pickleread(run_dir + '/objects/avg_corr.pkl') ## The correlation score of the neurons
 # neuron_ids = neuron_ids[corrs>0.75] 
 
@@ -71,16 +72,20 @@ radii = np.logspace(-2,np.log10(2),40)
 ## For the contrast response experiment
 center_contrasts = np.logspace(np.log10(0.06),np.log10(1),18) 
 surround_contrasts = np.logspace(np.log10(0.06),np.log10(1),6)
+# contrasts_article_1 = [3, 6, 9, 13, 25, 37, 50, 75, 100] ## same as in the article, just added some more resolution
+contrasts_article_1 = np.array([0.06, 0.13, 0.25, 0.5, 1.0])
+
 
 ## EXPERIMENTS 2 arguments
 ## For the orientation tuning experiment
-ori_shifts = np.linspace(-np.pi,np.pi,9)
+ori_shifts = np.linspace(-np.pi,np.pi,9, endpoint=False)
 ## For the ccss experiment
-center_contrasts_ccss = np.array([0.06,0.12,0.25,0.5,1.0,1.5])
-surround_contrast = contrast
+center_contrasts_ccss = np.array([0.06,0.12,0.25,0.5,1.0])
+experiment_2_contrast = 0.5
+surround_contrast = 0.5
 
 ## EXPERIMENTS 3 arguments
-contrasts = np.logspace(np.log10(0.06),np.log10(1),5)  ## Same as in the article
+contrasts_article_3 = np.logspace(np.log10(0.06),np.log10(1),5)  ## Same as in the article
 dot_size_in_pixels = 5  
 
 ## EXPERIMENTS 4 arguments
