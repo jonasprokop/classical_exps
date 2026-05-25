@@ -1,7 +1,7 @@
 import numpy as np
 
 # Functions
-from classical_exps.functions.utils import plot_img, pickleread
+from classical_exps.core.tools.utils import plot_img, pickleread
 
 ## Models
 from nnvision.models.trained_models.v1_task_fine_tuned import v1_convnext_ensemble
@@ -42,7 +42,7 @@ all_neurons_model = v1_convnext_ensemble
 ## Chose the indices of the neurons to work with
 n = 458
 neuron_ids = np.arange(n) ## Because 458 outputs in our model
-neuron_ids = neuron_ids[neuron_ids<50] ## Just to test the pipeline with a smaller number of neurons, can be removed to run with all neurons
+# neuron_ids = neuron_ids[neuron_ids<20] ## Just to test the pipeline with a smaller number of neurons, can be removed to run with all neurons
 corrs = pickleread(run_dir + '/objects/avg_corr.pkl') ## The correlation score of the neurons
 # neuron_ids = neuron_ids[corrs>0.75] 
 
@@ -68,7 +68,8 @@ size = 2.67
 neg_val = True ## Keep True
 
 ## EXPERIMENTS 1 arguments
-radii = np.logspace(-2,np.log10(2),40)
+## Because the model is cut at the boundary of 2.67 but in experiment the monitor goes beoyond that, we should continue the annulus into infinity (eg. max radii)
+radii = np.logspace(np.log10(0.15),np.log10(1.89),8) # log10(0.15)
 ## For the contrast response experiment
 center_contrasts = np.logspace(np.log10(0.06),np.log10(1),18) 
 surround_contrasts = np.logspace(np.log10(0.06),np.log10(1),6)
@@ -78,11 +79,11 @@ contrasts_article_1 = np.array([0.06, 0.13, 0.25, 0.5, 1.0])
 
 ## EXPERIMENTS 2 arguments
 ## For the orientation tuning experiment
-ori_shifts = np.linspace(-np.pi,np.pi,9, endpoint=False)
-## For the ccss experiment
-center_contrasts_ccss = np.array([0.06,0.12,0.25,0.5,1.0])
+ori_shifts = np.linspace(-np.pi/2,np.pi/2,4, endpoint=False)
 experiment_2_contrast = 0.5
-surround_contrast = 0.5
+## For the ccss experiment
+center_contrasts_ccss = np.array([0.0, 0.03, 0.06, 0.12, 0.25, 0.5])
+surround_contrasts_ccss = np.array([0.0, 0.03, 0.06, 0.12, 0.25, 0.5])
 
 ## EXPERIMENTS 3 arguments
 contrasts_article_3 = np.logspace(np.log10(0.06),np.log10(1),5)  ## Same as in the article

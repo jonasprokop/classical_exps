@@ -14,9 +14,9 @@ import numpy as np
 ## Models
 from nnvision.models.trained_models.v1_task_fine_tuned import v1_convnext_ensemble
 ## Functions
-from classical_exps.functions.experiments.experiments import *
-from classical_exps.functions.analysis.analyses import *
-from classical_exps.functions.utils import plot_img, pickleread
+from classical_exps.core.experiments.experiments import *
+from classical_exps.core.analysis.analyses import *
+from classical_exps.core.tools.utils import plot_img, pickleread
 
 
 #######################

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 ## Variables
 from run_pipeline.config.variables import *
+from run_pipeline.config.experimental_data_scraped_config import *
 
 
 ## Numpy
@@ -68,10 +69,11 @@ experiments_config = [
     # ['contrast_response_experiment', {'h5_file':h5_file, 'all_neurons_model':all_neurons_model, 'neuron_ids':neuron_ids, 'overwrite':overwrite, 'center_contrasts':center_contrasts, 'surround_contrasts':surround_contrasts, 'pixel_min':pixel_min, 'pixel_max':pixel_max, 'device':device, 'size':size, 'img_res':img_res, 'neg_val':neg_val}],
     # ['contrast_size_tuning_experiment_all_phases', {'h5_file':h5_file, 'all_neurons_model':all_neurons_model, 'neuron_ids':neuron_ids, 'overwrite':overwrite, 'phases':phases, 'contrasts':contrasts_article_1, 'radii':radii, 'pixel_min':pixel_min, 'pixel_max':pixel_max, 'device':device, 'size':size, 'img_res':img_res, 'neg_val':neg_val}],
     # ['orientation_tuning_experiment_all_phases', {'h5_file':h5_file, 'all_neurons_model':all_neurons_model, 'neuron_ids':neuron_ids, 'overwrite':overwrite, 'phases':phases, 'ori_shifts':ori_shifts, 'contrast':experiment_2_contrast, 'pixel_min':pixel_min, 'pixel_max':pixel_max, 'device':device, 'size':size, 'img_res':img_res}],
-    # ['center_contrast_surround_suppression_experiment', {'h5_file':h5_file, 'all_neurons_model':all_neurons_model, 'neuron_ids':neuron_ids, 'overwrite':overwrite, 'center_contrasts_ccss':center_contrasts_ccss, 'surround_contrast':surround_contrast, 'phases':phases, 'pixel_min':pixel_min, 'pixel_max':pixel_max, 'device':device, 'size':size, 'img_res':img_res}],
+    # ['center_contrast_surround_suppression_experiment', {'h5_file':h5_file, 'all_neurons_model':all_neurons_model, 'neuron_ids':neuron_ids, 'overwrite':overwrite, 'center_contrasts_ccss':center_contrasts_ccss, 'surround_contrasts_ccss':surround_contrasts_ccss, 'phases':phases, 'pixel_min':pixel_min, 'pixel_max':pixel_max, 'device':device, 'size':size, 'img_res':img_res}],
     # ['black_white_preference_experiment', {'h5_file':h5_file, 'all_neurons_model':all_neurons_model, 'neuron_ids':neuron_ids, 'overwrite':overwrite, 'dot_size_in_pixels':dot_size_in_pixels, 'contrast':contrast, 'img_res':img_res, 'pixel_min':pixel_min, 'pixel_max':pixel_max, 'device':device, 'seed':seed}],
+    # ['black_white_preference_experiment_strict_paper_version', {'h5_file':h5_file, 'all_neurons_model':all_neurons_model, 'neuron_ids':neuron_ids, 'overwrite':overwrite, 'contrast':contrast, 'img_res':img_res, 'pixel_min':pixel_min, 'pixel_max':pixel_max, 'device':device, 'seed':seed}],
+    # ['black_white_preference_experiment_paper_energy_version', {'h5_file':h5_file, 'all_neurons_model':all_neurons_model, 'neuron_ids':neuron_ids, 'overwrite':overwrite, 'contrast':contrast, 'img_res':img_res, 'pixel_min':pixel_min, 'pixel_max':pixel_max, 'device':device, 'seed':seed}],
     # ['texture_noise_response_experiment', {'h5_file':h5_file, 'all_neurons_model':all_neurons_model, 'neuron_ids':neuron_ids, 'directory_imgs':directory_imgs, 'overwrite':overwrite, 'contrast':contrast, 'pixel_min':pixel_min, 'pixel_max':pixel_max, 'num_samples':num_samples, 'img_res':img_res, 'device':device}]
-    # ['get_all_grating_parameters_with_modulator', {'h5_file':h5_file, 'all_neurons_model':all_neurons_model, 'neuron_ids':neuron_ids, 'overwrite':overwrite, 'contrast':contrast, 'img_res':img_res, 'pixel_min':pixel_min, 'pixel_max':pixel_max, 'device':device, 'size':size}],
     # ['get_all_grating_parameters_with_modulator', {'h5_file':h5_file, 'all_neurons_model':all_neurons_model, 'neuron_ids':neuron_ids, 'overwrite':overwrite, 'contrast':contrast, 'img_res':img_res, 'pixel_min':pixel_min, 'pixel_max':pixel_max, 'device':device, 'size':size}],
     # ['get_surround_contracst_facilitation', {'h5_file':h5_file, 'all_neurons_model':all_neurons_model, 'neuron_ids':neuron_ids, 'overwrite':overwrite, 'img_res':img_res, 'pixel_min':pixel_min, 'pixel_max':pixel_max, 'device':device, 'size':size}],
 
@@ -130,85 +132,82 @@ experiments_config = [
 # - texture_noise_response_results_3
 
 analyses_config = [
-    [
-        "perform_analysis_nature_and_interactions",
-        {
-            "h5_file": h5_file,
-            "neuron_ids": neuron_ids,
+    # [
+    #     "perform_analysis_nature_and_interactions",
+    #     {
+    #         "h5_file": h5_file,
+    #         "neuron_ids": neuron_ids,
+    #         "nature_and_interactions_scraped_data":nature_and_interactions_scraped_data,
 
-            # axes for loaders (mandatory if you load those datasets)
-            "center_contrasts": center_contrasts,
-            "surround_contrasts": surround_contrasts,
-            "contrasts": contrasts_article_1,   
-            "radii": radii,
+    #         # axes for loaders (mandatory if you load those datasets)
+    #         "center_contrasts": center_contrasts,
+    #         "surround_contrasts": surround_contrasts,
+    #         "contrasts": contrasts_article_1,   
+    #         "radii": radii,
 
-            # thresholds
-            "fit_err_thresh": fit_err_thresh,
-            "supp_thresh": supp_thresh,
+    #         # thresholds
+    #         "fit_err_thresh": fit_err_thresh,
+    #         "supp_thresh": supp_thresh,
 
-            # CR spread selection
-            "sort_by_std": sort_by_std,
-            "spread_to_plot": spread_to_plot,
+    #         # CR spread selection
+    #         "sort_by_std": sort_by_std,
+    #         "spread_to_plot": spread_to_plot,
 
-            # CST shift selection
-            "shift_to_plot": shift_to_plot,
-            "low_contrast_id": low_contrast_id,
-            "high_contrast_id": high_contrast_id,
+    #         # CST shift selection
+    #         "shift_to_plot": shift_to_plot,
+    #         "low_contrast_id": low_contrast_id,
+    #         "high_contrast_id": high_contrast_id,
 
-            # output
-            "output_dir": main_dir + "/results/nature_and_interactions",
+    #         # output
+    #         "output_dir": main_dir + "/results/nature_and_interactions",
 
-            # run flags 
-            "run": {
-                "check_h5": True,
-                "load_size_results": True,
-                "load_contrast_response": True,
-                "load_contrast_size_tuning": True,
+    #         # run flags 
+    #         "run": {
+    #             "check_h5": True,
+    #             "load_size_results": True,
+    #             "load_contrast_response": True,
+    #             "load_contrast_size_tuning": True,
 
-                "size_results_1": True,
-                "size_results_2": True,
-                "contrast_response_results_1": True,
-                "contrast_size_tuning_results_1": True,
-                "overwrite_size_results_1": True,  # if True, will overwrite the size_results_1 in H5 with the newly computed one (useful if you change the analysis code and want to update the results in H5)
+    #             "size_results_1": True,
+    #             "size_results_2": True,
+    #             "contrast_response_results_1": True,
+    #             "contrast_size_tuning_results_1": True,
+    #             "overwrite_size_results_1": True,  # if True, will overwrite the size_results_1 in H5 with the newly computed one (useful if you change the analysis code and want to update the results in H5)
 
-                "export_excel": False, 
-                # "excel_path": main_dir + "/results/nature_and_interactions/summary.xlsx",
+    #             "export_excel": False, 
+    #             # "excel_path": main_dir + "/results/nature_and_interactions/summary.xlsx",
 
-                "plot_all_contrast_response":True,
-                "plot_all_contrast_size_tuning":True,
-                "print_loaded_inventory": True,
-                "load_size_tuning_curves": True,
-                "size_tuning_plots": True,
-                "plot_size_tuning_curves":True,
+    #             "plot_all_contrast_response":True,
+    #             "plot_all_contrast_size_tuning":True,
+    #             "print_loaded_inventory": True,
+    #             "load_size_tuning_curves": True,
+    #             "size_tuning_plots": True,
+    #             "plot_size_tuning_curves":True,
 
-                "fit_size_tuning": True,         # refit now + overwrite in H5
-                "use_size_tuning_fits": True,    # downstream uses fits if available
-                "fit_force": True,               # if True, refit even if already in H5
-                "fit_strict": True,               # if True, error if missing fits when use_size_tuning_fits
+    #             "fit_size_tuning": False,         # refit now + overwrite in H5
+    #             "use_size_tuning_fits": True,    # downstream uses fits if available
+    #             "fit_force": False,               # if True, refit even if already in H5
+    #             "fit_strict": False,               # if True, error if missing fits when use_size_tuning_fits
 
                 
-                "fit_contrast_response": True,
-                "use_contrast_response_fits": True,
-                "contrast_size_tuning_fit_model":"gain" ,  # "gain" or "size" or "uniform"
+    #             "fit_contrast_response": False,
+    #             "use_contrast_response_fits": True,
+    #             "contrast_size_tuning_fit_model":"gain" ,  # "gain" or "size" or "uniform"
 
-                "fit_contrast_size_tuning": True,
-                "use_contrast_size_tuning_fits": True,
-                "fit_contrast_size_tuning_force": True,
-                "fit_contrast_size_tuning_strict": True,
-            },
-        }
-    ],
+    #             "fit_contrast_size_tuning": True,
+    #             "use_contrast_size_tuning_fits": True,
+    #             "fit_contrast_size_tuning_force": True,
+    #             "fit_contrast_size_tuning_strict": True,
+    #         },
+    #     }
+    # ],
 
-    # ['orientation_tuning_results_1', {'h5_file':h5_file, 'neuron_ids':neuron_ids, 'fit_err_thresh':fit_err_thresh}],
-    # ['orientation_tuning_results_2', {'h5_file':h5_file, 'neuron_ids':neuron_ids, 'fit_err_thresh':fit_err_thresh}],
-    # ['ccss_results_1', {'h5_file':h5_file, 'neuron_ids':neuron_ids, 'fit_err_thresh':fit_err_thresh}],
-    # ['ccss_results_2', {'h5_file':h5_file, 'neuron_ids':neuron_ids, 'contrast_id':high_center_contrast_id, 'norm_center_contrast_id':high_norm_center_contrast_id, 'fit_err_thresh':fit_err_thresh}],
-    # ['ccss_results_2', {'h5_file':h5_file, 'neuron_ids':neuron_ids, 'contrast_id':low_center_contrast_id, 'norm_center_contrast_id':low_norm_center_contrast_id, 'fit_err_thresh':fit_err_thresh}],
-    # ['black_white_results_1', {'h5_file':h5_file, 'neuron_ids':neuron_ids, 'neuron_depths':neuron_depths, 'SNR_thresh':SNR_thresh}],
+    # ['orientation_tuning_results', {'h5_file':h5_file, 'neuron_ids':neuron_ids, 'fit_err_thresh':fit_err_thresh, "scraped_orietation_tuning_data":selectivity_and_spatial_interaction_data}],
+    # ['ccss_results', {'h5_file':h5_file, 'neuron_ids':neuron_ids, 'fit_err_thresh':fit_err_thresh, "scraped_ccss_data":selectivity_and_spatial_interaction_data}],
+    # ['black_white_results_1', {'h5_file':h5_file, 'neuron_ids':neuron_ids, 'neuron_depths':neuron_depths, 'energy_thresh':SNR_thresh}],
     # ['texture_noise_response_results_1',  {'h5_file':h5_file, 'neuron_ids':neuron_ids, 'wanted_fam_order':wanted_fam_order}],
     # ['texture_noise_response_results_2',  {'h5_file':h5_file, 'neuron_ids':neuron_ids, 'wanted_fam_order':wanted_fam_order}],
     # ['texture_noise_response_results_3',  {'h5_file':h5_file, 'neuron_ids':neuron_ids}],
-    # ['recreate_histograms_second_order_orientation',  {'h5_file':h5_file, 'neuron_ids':neuron_ids}],
     # ['recreate_histograms_second_order_orientation',  {'h5_file':h5_file, 'neuron_ids':neuron_ids}],
     # ['recreate_plots_results_article_7',  {'h5_file':h5_file, 'neuron_ids':neuron_ids}]
 ]
@@ -219,43 +218,43 @@ analyses_config = [
 # --------------------------------------------------------------------------------------
 
 # Experiments (pre-analysis)
-from classical_exps.functions.experiments.a_preanalysis import (
+from classical_exps.core.tools.preanalysis import (
     get_all_grating_parameters,
     get_preferred_position,
 )
 
 # Experiments (article 1)
-from classical_exps.functions.article_1.experiments.size_tuning import (
+from classical_exps.core.simulations.cavanaugh2002_center_surround_gain.experiments.size_tuning import (
     size_tuning_experiment_all_phases,
 )
 
-from classical_exps.functions.article_1.experiments.contrast_response import (
+from classical_exps.core.simulations.cavanaugh2002_center_surround_gain.experiments.contrast_response import (
     contrast_response_experiment,
 )
-from classical_exps.functions.article_1.experiments.contrast_size_tuning import (
+from classical_exps.core.simulations.cavanaugh2002_center_surround_gain.experiments.contrast_size_tuning import (
     contrast_size_tuning_experiment_all_phases,   
 )
 
 
 # Experiments (article 2)
-from classical_exps.functions.article_2.experiments.orientation_tuning import (
+from classical_exps.core.simulations.cavanaugh2002_surround_selectivity.experiments.orientation_tuning import (
     orientation_tuning_experiment_all_phases,
     )
-from classical_exps.functions.article_2.experiments.ccss import (
+from classical_exps.core.simulations.cavanaugh2002_surround_selectivity.experiments.ccss import (
     center_contrast_surround_suppression_experiment,
 )
 
 # Experiments (other)
-from classical_exps.functions.experiments.d_3rd_article import black_white_preference_experiment
-from classical_exps.functions.experiments.e_4th_article import texture_noise_response_experiment
-from classical_exps.functions.experiments.f_5th_article import get_all_grating_parameters_with_modulator
-from classical_exps.functions.experiments.g_6th_article import get_surround_contrast_facilitation
+from classical_exps.core.simulations.yeh2009_black_dominance.experiment.black_and_white_experiment import black_white_preference_experiment, black_white_preference_experiment_strict_paper_version_with_variance, black_white_preference_experiment_paper_energy_version
+from classical_exps.core.simulations.freeman2013_naturalistic_texture_modulation.experiment.main_experiment import texture_noise_response_experiment
+from classical_exps.legacy.f_5th_article_experiments_legacy import get_all_grating_parameters_with_modulator
+from classical_exps.legacy.g_6th_article_experiment_legacy import get_surround_contrast_facilitation
 
 # Analyses (your Nature+Interactions pipeline)
-from classical_exps.functions.article_1.analysis.main import perform_analysis_nature_and_interactions
+from classical_exps.core.simulations.cavanaugh2002_center_surround_gain.analysis.main_analysis import perform_analysis_nature_and_interactions
 
 # Analyses (filters)
-from classical_exps.functions.analysis.a_filtering_fucntions import (
+from classical_exps.core.tools.filtering_functions import (
     filter_fitting_error,
     filter_no_supp_neurons,
     filter_low_supp_neurons,
@@ -263,21 +262,34 @@ from classical_exps.functions.analysis.a_filtering_fucntions import (
 )
 
 # Analyses (optional results helpers that appear in comments / typical usage)
-from classical_exps.functions.article_1.analysis.step_size_tuning import (
+from classical_exps.core.simulations.cavanaugh2002_center_surround_gain.analysis.step_size_tuning import (
     size_tuning_results_1,
     size_tuning_results_2,
 )
-from classical_exps.functions.article_1.analysis.step_contrast_response import contrast_response_results_1
-from classical_exps.functions.article_1.analysis.step_contrast_size import contrast_size_tuning_results_1
+from classical_exps.core.simulations.cavanaugh2002_center_surround_gain.analysis.step_contrast_response import contrast_response_results_1
+from classical_exps.core.simulations.cavanaugh2002_center_surround_gain.analysis.step_contrast_size import contrast_size_tuning_results_1
 
-from classical_exps.functions.article_2.analysis.orientation_tuning import (
-    orientation_tuning_results_1,
-    orientation_tuning_results_2,
+from classical_exps.core.simulations.cavanaugh2002_surround_selectivity.analysis.analysis_orientation_tuning import (
+    orientation_tuning_results
 )
-from classical_exps.functions.article_2.analysis.ccss import (
-    ccss_results_1,
-    ccss_results_2,
+from classical_exps.core.simulations.cavanaugh2002_surround_selectivity.analysis.analysis_ccss import (
+    ccss_results
     )
+
+from classical_exps.core.simulations.yeh2009_black_dominance.analysis.main_analysis import (
+    black_white_results_1
+)
+
+from classical_exps.core.simulations.freeman2013_naturalistic_texture_modulation.analysis.main_analysis import (
+    texture_noise_response_results_1,
+    texture_noise_response_results_2,
+    texture_noise_response_results_3,
+)
+from classical_exps.legacy.f_5st_article_analysis_legacy import (
+    recreate_histograms_second_order_orientation,
+)
+
+
 
 FUNCTION_REGISTRY: dict[str, Callable[..., Any]] = {
     # Experiments: minimal list you said you use
@@ -289,6 +301,8 @@ FUNCTION_REGISTRY: dict[str, Callable[..., Any]] = {
     "orientation_tuning_experiment_all_phases": orientation_tuning_experiment_all_phases,
     "center_contrast_surround_suppression_experiment": center_contrast_surround_suppression_experiment,
     "black_white_preference_experiment": black_white_preference_experiment,
+    "black_white_preference_experiment_strict_paper_version_with_variance": black_white_preference_experiment_strict_paper_version_with_variance,
+    "black_white_preference_experiment_paper_energy_version": black_white_preference_experiment_paper_energy_version,
     "texture_noise_response_experiment": texture_noise_response_experiment,
     "get_all_grating_parameters_with_modulator": get_all_grating_parameters_with_modulator,
 
@@ -311,10 +325,16 @@ FUNCTION_REGISTRY: dict[str, Callable[..., Any]] = {
     "size_tuning_results_2": size_tuning_results_2,
     "contrast_response_results_1": contrast_response_results_1,
     "contrast_size_tuning_results_1": contrast_size_tuning_results_1,
-    "orientation_tuning_results_1": orientation_tuning_results_1,
-    "orientation_tuning_results_2": orientation_tuning_results_2,
-    "ccss_results_1": ccss_results_1,
-    "ccss_results_2": ccss_results_2,
+    "orientation_tuning_results": orientation_tuning_results,
+    "ccss_results": ccss_results,
+
+    "black_white_results_1":black_white_results_1,
+    "texture_noise_response_results_1": texture_noise_response_results_1,
+    "texture_noise_response_results_2": texture_noise_response_results_2,
+    "texture_noise_response_results_3": texture_noise_response_results_3,
+
+    "recreate_histograms_second_order_orientation": recreate_histograms_second_order_orientation,
+
 
 }
 

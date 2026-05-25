@@ -1,7 +1,8 @@
-version: '3.4'
+version: "3.4"
 
 services:
   classical_exps:
+    container_name: jonas_classical_exps_dyscal_gpu1
     image: classical_exps
     build:
       context: .
@@ -13,3 +14,5 @@ services:
       - .:/project
     env_file: .env
     runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=1

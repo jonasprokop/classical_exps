@@ -33,6 +33,7 @@ RUN python3.9 -m pip install --upgrade pip && \
         tqdm \
         statsmodels  && \
     python3.9 -m pip install param==1.5.1  
+    python3.9 -m pip install --no-cache-dir --force numpy==1.24.0 
     # python3.9 -m pip install git+https://github.com/sinzlab/insilico-stimuli.git
 
 # lines below are necessasry to fix an issue explained here: https://github.com/NVIDIA/nvidia-docker/issues/1631
