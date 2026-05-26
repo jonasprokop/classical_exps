@@ -8,7 +8,14 @@ from __future__ import annotations
 
 ## Variables
 from run_pipeline.config.variables import *
-from run_pipeline.config.experimental_data_scraped_config import *
+
+from run_pipeline.config.experimental_scraped_data import (
+    freeman2013_naturalistic_texture_modulation_scraped_data,
+    yeh2009_black_dominance_scraped_data,
+    hallum2014_second_order_surround_scraped_data,
+    cavanaugh2002_center_surround_gain_scraped_data,
+    cavanaugh2002_surround_selectivity_scraped_data,
+)
 
 
 ## Numpy
@@ -137,7 +144,7 @@ analyses_config = [
     #     {
     #         "h5_file": h5_file,
     #         "neuron_ids": neuron_ids,
-    #         "nature_and_interactions_scraped_data":nature_and_interactions_scraped_data,
+    #         "nature_and_interactions_scraped_data":cavanaugh2002_center_surround_gain_scraped_data,
 
     #         # axes for loaders (mandatory if you load those datasets)
     #         "center_contrasts": center_contrasts,
@@ -202,9 +209,9 @@ analyses_config = [
     #     }
     # ],
 
-    # ['orientation_tuning_results', {'h5_file':h5_file, 'neuron_ids':neuron_ids, 'fit_err_thresh':fit_err_thresh, "scraped_orietation_tuning_data":selectivity_and_spatial_interaction_data}],
-    # ['ccss_results', {'h5_file':h5_file, 'neuron_ids':neuron_ids, 'fit_err_thresh':fit_err_thresh, "scraped_ccss_data":selectivity_and_spatial_interaction_data}],
-    # ['black_white_results_1', {'h5_file':h5_file, 'neuron_ids':neuron_ids, 'neuron_depths':neuron_depths, 'energy_thresh':SNR_thresh}],
+    # ['orientation_tuning_results', {'h5_file':h5_file, 'neuron_ids':neuron_ids, 'fit_err_thresh':fit_err_thresh, "scraped_orietation_tuning_data":cavanaugh2002_surround_selectivity_scraped_data}],
+    # ['ccss_results', {'h5_file':h5_file, 'neuron_ids':neuron_ids, 'fit_err_thresh':fit_err_thresh, "scraped_ccss_data":cavanaugh2002_surround_selectivity_scraped_data}],
+    ['black_white_results_1', {'h5_file':h5_file, 'neuron_ids':neuron_ids, 'neuron_depths':neuron_depths, 'energy_thresh':SNR_thresh, "scraped_snr_config":yeh2009_black_dominance_scraped_data}],
     # ['texture_noise_response_results_1',  {'h5_file':h5_file, 'neuron_ids':neuron_ids, 'wanted_fam_order':wanted_fam_order}],
     # ['texture_noise_response_results_2',  {'h5_file':h5_file, 'neuron_ids':neuron_ids, 'wanted_fam_order':wanted_fam_order}],
     # ['texture_noise_response_results_3',  {'h5_file':h5_file, 'neuron_ids':neuron_ids}],
@@ -247,8 +254,6 @@ from classical_exps.core.simulations.cavanaugh2002_surround_selectivity.experime
 # Experiments (other)
 from classical_exps.core.simulations.yeh2009_black_dominance.experiment.black_and_white_experiment import black_white_preference_experiment, black_white_preference_experiment_strict_paper_version_with_variance, black_white_preference_experiment_paper_energy_version
 from classical_exps.core.simulations.freeman2013_naturalistic_texture_modulation.experiment.main_experiment import texture_noise_response_experiment
-from classical_exps.legacy.f_5th_article_experiments_legacy import get_all_grating_parameters_with_modulator
-from classical_exps.legacy.g_6th_article_experiment_legacy import get_surround_contrast_facilitation
 
 # Analyses (your Nature+Interactions pipeline)
 from classical_exps.core.simulations.cavanaugh2002_center_surround_gain.analysis.main_analysis import perform_analysis_nature_and_interactions
@@ -285,10 +290,6 @@ from classical_exps.core.simulations.freeman2013_naturalistic_texture_modulation
     texture_noise_response_results_2,
     texture_noise_response_results_3,
 )
-from classical_exps.legacy.f_5st_article_analysis_legacy import (
-    recreate_histograms_second_order_orientation,
-)
-
 
 
 FUNCTION_REGISTRY: dict[str, Callable[..., Any]] = {
@@ -304,12 +305,6 @@ FUNCTION_REGISTRY: dict[str, Callable[..., Any]] = {
     "black_white_preference_experiment_strict_paper_version_with_variance": black_white_preference_experiment_strict_paper_version_with_variance,
     "black_white_preference_experiment_paper_energy_version": black_white_preference_experiment_paper_energy_version,
     "texture_noise_response_experiment": texture_noise_response_experiment,
-    "get_all_grating_parameters_with_modulator": get_all_grating_parameters_with_modulator,
-
-    # NOTE: your config has a typo: contracst -> contrast. Keep backwards compatible alias:
-    "get_surround_contracst_facilitation": get_surround_contrast_facilitation,
-    # Also register the correct spelling, so new configs can be sane:
-    "get_surround_contrast_facilitation": get_surround_contrast_facilitation,
 
     # Analyses
     "perform_analysis_nature_and_interactions": perform_analysis_nature_and_interactions,
@@ -332,8 +327,6 @@ FUNCTION_REGISTRY: dict[str, Callable[..., Any]] = {
     "texture_noise_response_results_1": texture_noise_response_results_1,
     "texture_noise_response_results_2": texture_noise_response_results_2,
     "texture_noise_response_results_3": texture_noise_response_results_3,
-
-    "recreate_histograms_second_order_orientation": recreate_histograms_second_order_orientation,
 
 
 }
