@@ -3,20 +3,25 @@
 #####              -----------------------------------------------------------               #####
 ##################################################################################################
 
-## Import the config objects
-from run_pipeline.config import *
+from run_pipeline.config.registry import FUNCTION_REGISTRY
+from run_pipeline.config.run_plan import TOUCHPOINT_PLAN
+from run_pipeline.config.runner import run_touchpoint_plan
 
-## Perform the experiments
-for exp in experiments_config :
-    name_function = exp[0]
-    params = exp[1]
-    result = execute_function(name_function, params)
+# For local runs, keep require_acceptance=True: the runner prints the selected
+# program and asks before doing damage. If you want to run without asking for acceptance
+# then require_acceptance=False,
+# or assume_yes=True.
 
-## Perform the analyses
-for res in analyses_config :
-    name_function = res[0]
-    params = res[1]
-    result = execute_function(name_function, params)
+def main() -> None:
+    run_touchpoint_plan(
+        TOUCHPOINT_PLAN,
+        FUNCTION_REGISTRY,
+        run_experiments=False,
+        run_analyses=True,
+        require_acceptance=True,
+    )
 
 
+if __name__ == "__main__":
+    main()
 

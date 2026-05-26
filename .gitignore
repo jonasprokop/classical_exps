@@ -22,6 +22,7 @@ results/
 classical_exps/plots/
 run_pipeline/objects/shareStim_NN13/**
 legacy/
+run_pipeline/config/config_legacy/
 
 # Project scripts
 classical_exps/save_functions*.py
