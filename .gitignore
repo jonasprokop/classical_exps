@@ -11,7 +11,8 @@ dist/
 .env
 
 # Data/outputs
-core
+# Data/outputs
+/core
 *.csv
 *.h5
 *.pickle
@@ -23,6 +24,9 @@ classical_exps/plots/
 run_pipeline/objects/shareStim_NN13/**
 legacy/
 run_pipeline/config/config_legacy/
+/models
+
+classical_exps/core/models/model_files
 
 # Project scripts
 classical_exps/save_functions*.py
@@ -34,4 +38,3 @@ surroundmodulation/analyses.py
 # Experiments
 experiments_convnext/
 experiments_data/convnext/
-classical_exps/core/

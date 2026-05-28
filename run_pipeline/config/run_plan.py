@@ -89,7 +89,7 @@ RUN_ANALYSES = {
     # -------------------------------------------------------------------------
     # 4. Yeh 2009 — black/white dominance
     # -------------------------------------------------------------------------
-    "yeh2009_black_dominance.black_white_snr",
+    # "yeh2009_black_dominance.black_white_snr",
 
     # -------------------------------------------------------------------------
     # 5. Freeman 2013 — texture/noise modulation
@@ -99,7 +99,7 @@ RUN_ANALYSES = {
     # -------------------------------------------------------------------------
     # 6. Hallum 2014 — second-order surround orientation
     # -------------------------------------------------------------------------
-    # "hallum2014_second_order_orientation.second_order_orientation",
+    "hallum2014_second_order_orientation.second_order_orientation",
 }
 
 
@@ -496,6 +496,7 @@ TEXTURE_NOISE_MODULATION = [
                 {
                     **H5_ARGS,
                     "wanted_fam_order": wanted_fam_order,
+                    "scraped_texture_noise_config": freeman2013_naturalistic_texture_modulation_scraped_data,
                 },
             ),
             ana(
@@ -503,12 +504,14 @@ TEXTURE_NOISE_MODULATION = [
                 {
                     **H5_ARGS,
                     "wanted_fam_order": wanted_fam_order,
+                    "scraped_texture_noise_config": freeman2013_naturalistic_texture_modulation_scraped_data,
                 },
             ),
             ana(
                 "texture_noise_response_results_3",
                 {
                     **H5_ARGS,
+                    "scraped_texture_noise_config": freeman2013_naturalistic_texture_modulation_scraped_data,
                 },
             ),
         ],

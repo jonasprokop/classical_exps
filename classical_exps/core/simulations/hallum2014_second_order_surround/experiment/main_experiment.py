@@ -1,0 +1,345 @@
+############################
+##### PART 0 : Imports #####
+############################
+
+## Useful
+import numpy as np
+import torch
+from tqdm import tqdm
+import os
+## Utils
+from classical_exps.core.tools.utils import *
+## Image generation
+import imagen
+from imagen.image import BoundingBox
+import matplotlib.image as mpimg
+## Import models 
+from classical_exps.core.tools.utils import SingleCellModel
+## Data storage
+import h5py
+from scipy.optimize import curve_fit
+import time
+import cv2
+import matplotlib.pyplot as plt
+import traceback
+import shutil
+
+###############################################################################
+#####  PART V : Experiments for the fifth article, Hallum et al., 2014   #####
+#####   ---------------------------------------------------------------   #####
+#####       Surround suppression supports second-order feature encoding   #####
+#####                     by macaque V1 and V2 neurons                    #####
+#####   ---------------------------------------------------------------   #####
+#####      DOI : http://dx.doi.org/10.1016/j.visres.2014.10.004           #####
+###############################################################################
+
+def get_all_grating_parameters_with_modulator(
+    h5_file,
+    all_neurons_model,
+    neuron_ids,
+    overwrite=False,
+    modulator_orientations = np.linspace(-np.pi/2, np.pi/2, 4, endpoint=False), 
+    modulator_spatial_frequencies_multiplicators = [0.5],
+    modulator_phases = np.linspace(0, 2*np.pi, 20, endpoint=False),
+    carrier_contrast = 0.75,
+    modulator_contrast=1,
+    contrast=1,
+    img_res=[93, 93],
+    pixel_min=-1.7876,
+    pixel_max=2.1919,
+    device=None,
+    size=2.67,
+    save_stimuli=False,
+    save_stimuli_=True
+):
+    '''
+    Function to first determine preferred grating parameters using find_preferred_grating_parameters_full_field
+    and then apply modulator to it, and find the preffered combination of such grating with modulation.
+        
+
+        Arguments :
+
+            - h5_file           : The HDF5 file containing the data
+            - overwrite         : If set to True, will erase the data in the group "preferred_grating_params" and "modulator_params" and then fill it again. 
+                                  If set to False, the function will conserve the existing data and only add the one not already present
+            - all_neurons_model : The full model containing every neurons (In our analysis it correspond to the v1_convnext_ensemble)
+            - neuron_ids        : The list (or array) of the neurons we wish to perform the analysis on
+            - others            : Explained in 'find_preferred_grating_parameters_full_field'
+
+        Prerequisite : 
+
+            - function 'get_all_grating_parameters'        executed for the required neurons with matching arguments
+
+        Outputs :
+
+            - datasets in /modulator_params : An array containing the preferred modulator parameters
+                                               Format = [modulator_orientation, modulator_spatial_frequency, response]
+    '''
+    print(' > Get preferred grating parameters and modulator responses')
+
+    # Define paths
+    grating_group_path = "/full_field_params"
+    modulator_group_path = "/modulator_params"
+    group_path_pos         = "/preferred_pos"
+
+
+    if device is None:
+        device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
+    # Clear groups if overwrite is requested
+    if overwrite:
+        clear_group(h5_file, modulator_group_path)
+
+    ## This will serve to create and verify the arguments of the group
+    args_str = f"modulator_orientations={modulator_orientations}/modulator_spatial_frequencies_multiplicators ={modulator_spatial_frequencies_multiplicators }/contrast={contrast}/img_res={img_res}/pixel_min={pixel_min}/pixel_max={pixel_max}/size={size}"
+
+    ## Create the group if it doesn't exist, and, if it already exists, check if the arguments are matching
+    group_init(h5_file, modulator_group_path, args_str)
+
+    ## If the neurons are not all in the data : 
+    if check_neurons_presence(h5_file, [grating_group_path, modulator_group_path], neuron_ids) : 
+        return
+
+    else:
+        with h5py.File(h5_file, 'a') as file :
+
+            ## Access the group
+            mod_group = file[modulator_group_path]
+            grating_group   = file[grating_group_path]
+
+            ## Add description
+            mod_group.attrs["description"] = "datasets = [relative_orientation, relative_modulator_spatial_frequency, modulator_phase, response]"
+
+
+            ## Get the model for the neuron and retrieve max exciting responses
+            for neuron_id in tqdm(neuron_ids, desc="Applying Modulator"):
+                neuron = f"neuron_{neuron_id}"
+
+                ## Get the model for the neuron
+                single_model = SingleCellModel(all_neurons_model,neuron_id)
+                single_model.to(device)
+                single_model.eval()
+
+                preferred_ori   = grating_group[neuron][:][0]
+                preferred_sf    = grating_group[neuron][:][1]
+                preferred_phase = grating_group[neuron][:][2]
+
+                try:
+                    # get center coordinates
+                    x_pix         = file[group_path_pos][neuron][:][0]
+                    y_pix         = file[group_path_pos][neuron][:][1]
+                    
+                except:
+                    continue
+
+                carrier  = torch.Tensor(imagen.SineGrating(
+                    orientation=preferred_ori,
+                    frequency=preferred_sf,
+                    phase=preferred_phase,
+                    bounds=BoundingBox(points=((-size / 2, -size / 2), (size / 2, size / 2))),
+                    offset = 0, #?
+                    scale = 1,  #?
+                    xdensity=img_res[1] / size,
+                    ydensity=img_res[0] / size,
+                    x = get_offset_in_degr(x_pix, img_res[1], size), 
+                    y = -get_offset_in_degr(y_pix, img_res[0], size)
+                )())
+
+                if save_stimuli:
+                    carrier_np = carrier.squeeze().detach().cpu().numpy()
+                    carrier_min_val, carrier_max_val = carrier_np.min(), carrier_np.max()
+                    directory = "/project/results/modulation/carriers"  + "/" + neuron + "/"
+                    os.makedirs(directory, exist_ok=True)
+                    fig, ax = plt.subplots()
+                    im = ax.imshow(carrier_np.squeeze(),  cmap='gray', vmin=carrier_min_val, vmax=carrier_max_val)
+                    fig.colorbar(im, ax=ax)
+                    plt.savefig(directory + f"{neuron}_carrier_original_output.png")
+                    plt.close()
+            
+
+                carrier = rescale(carrier, 0,1,-1,1)
+                
+                if save_stimuli:
+                    carrier_np = carrier.squeeze().detach().cpu().numpy()
+                    carrier_min_val, carrier_max_val = carrier_np.min(), carrier_np.max()
+                    directory = "/project/results/modulation/carriers"  + "/" + neuron + "/"
+                    os.makedirs(directory, exist_ok=True)
+                    fig, ax = plt.subplots()
+                    im = ax.imshow(carrier_np.squeeze(),  cmap='gray', vmin=carrier_min_val, vmax=carrier_max_val)
+                    fig.colorbar(im, ax=ax)
+                    plt.savefig(directory + f"{neuron}_carrier_normalised.png")
+                    plt.close()
+            
+
+                carrier = carrier_contrast * carrier
+
+                if save_stimuli:
+                    carrier_np = carrier.squeeze().detach().cpu().numpy()
+                    carrier_min_val, carrier_max_val = carrier_np.min(), carrier_np.max()
+                    directory = "/project/results/modulation/carriers"  + "/" + neuron + "/"
+                    os.makedirs(directory, exist_ok=True)
+                    fig, ax = plt.subplots()
+                    im = ax.imshow(carrier_np.squeeze(),  cmap='gray', vmin=carrier_min_val, vmax=carrier_max_val)
+                    fig.colorbar(im, ax=ax)
+                    plt.savefig(directory + f"{neuron}_carrier_apllied_contrast.png")
+                    plt.close()
+
+
+                # Structured grid of stimuli to visualize
+                sampled_orientations = modulator_orientations
+                sampled_sf_mult = modulator_spatial_frequencies_multiplicators  # use as is if small
+                target_phases = [0, np.pi/2, np.pi, 3*np.pi/2]
+                sampled_phases = np.array([
+                    modulator_phases[np.argmin(np.abs(modulator_phases - t))]
+                    for t in target_phases
+                ])
+
+                # Create set of sampled combinations
+                sampled_grid = set(
+                    (float(o), float(sf), float(p))
+                    for o in sampled_orientations
+                    for sf in sampled_sf_mult
+                    for p in sampled_phases
+                    )
+
+                for relative_ori in modulator_orientations:
+                    for modulator_spatial_frequencies_multiplicator in modulator_spatial_frequencies_multiplicators:
+                            for mod_phase in modulator_phases:
+
+                                # ori is relative to max exciting 
+                                # mod is half to max exciting
+                                # phases are gone over
+                                
+                                mod_sf = preferred_sf * modulator_spatial_frequencies_multiplicator
+
+                                modulator = torch.Tensor(imagen.SineGrating(
+                                    orientation= preferred_ori + relative_ori,
+                                    frequency=mod_sf,
+                                    phase=mod_phase,
+                                    bounds=BoundingBox(points=((-size / 2, -size / 2), (size / 2, size / 2))),
+                                    offset = 0, #?
+                                    scale = 1,  #?
+                                    xdensity=img_res[1] / size,
+                                    ydensity=img_res[0] / size,
+                                x = get_offset_in_degr(x_pix, img_res[1], size), 
+                                y = -get_offset_in_degr(y_pix, img_res[0], size)
+                                )())
+
+                                
+                                if save_stimuli:
+                                    modulator_np = modulator.squeeze().detach().cpu().numpy()
+                                    modulator_min_val, modulator_max_val = modulator_np.min(), modulator_np.max()
+                                    fig, ax = plt.subplots()
+                                    im = ax.imshow(modulator_np.squeeze(),  cmap='gray', vmin=modulator_min_val, vmax=modulator_max_val)
+                                    directory = "/project/results/modulation/modulators"  + "/" + neuron + "/"
+                                    os.makedirs(directory, exist_ok=True)
+                                    fig.colorbar(im, ax=ax)
+                                    plt.savefig(directory + f"{neuron}_modulator_{relative_ori}_{mod_sf}_{mod_phase}_original.png")
+                                    plt.close()
+
+                                modulator = rescale(modulator,0,1,0,1)
+
+                                if save_stimuli:
+                                    modulator_np = modulator.squeeze().detach().cpu().numpy()
+                                    modulator_min_val, modulator_max_val = modulator_np.min(), modulator_np.max()
+                                    fig, ax = plt.subplots()
+                                    im = ax.imshow(modulator_np.squeeze(),  cmap='gray', vmin=modulator_min_val, vmax=modulator_max_val)
+                                    directory = "/project/results/modulation/modulators"  + "/" + neuron + "/"
+                                    os.makedirs(directory, exist_ok=True)
+                                    fig.colorbar(im, ax=ax)
+                                    plt.savefig(directory + f"{neuron}_modulator_{relative_ori}_{mod_sf}_{mod_phase}_rescaled.png")
+                                    plt.close()
+
+                                grating = ((carrier * modulator)/2)+0.5
+                                
+                                grating = grating.reshape(1,1,*img_res).to(device)
+
+                                if save_stimuli:
+                                    grating_np_resulting = grating.squeeze().detach().cpu().numpy()
+                                    grating_min_val_resulting, grating_max_val_resulting = grating_np_resulting.min(), grating_np_resulting.max()
+                                    fig, ax = plt.subplots()
+                                    im = ax.imshow(grating_np_resulting.squeeze(),  cmap='gray', vmin=grating_min_val_resulting, vmax=grating_max_val_resulting)
+                                    fig.colorbar(im, ax=ax)
+                                    directory = "/project/results/modulation/gratings"  + "/" + neuron + "/"
+                                    os.makedirs(directory, exist_ok=True)
+                                    plt.savefig(directory + f"{neuron}_grating_{relative_ori}_{mod_sf}_{mod_phase}_original.png")
+                                    plt.close()
+
+                                
+                                grating_np = grating.squeeze().detach().cpu().numpy()
+                                grating_min_val, grating_max_val = grating_np.min(), grating_np.max()
+
+                                grating = rescale(grating, grating_min_val, grating_max_val, pixel_min, pixel_max)
+
+                                if save_stimuli:
+                                    grating_np_resulting = grating.squeeze().detach().cpu().numpy()
+                                    grating_min_val_resulting, grating_max_val_resulting = grating_np_resulting.min(), grating_np_resulting.max()
+                                    fig, ax = plt.subplots()
+                                    im = ax.imshow(grating_np_resulting.squeeze(),  cmap='gray', vmin=grating_min_val_resulting, vmax=grating_max_val_resulting)
+                                    fig.colorbar(im, ax=ax)
+                                    directory = "/project/results/modulation/gratings"  + "/" + neuron + "/"
+                                    os.makedirs(directory, exist_ok=True)
+                                    plt.savefig(directory + f"{neuron}_grating_{relative_ori}_{mod_sf}_{mod_phase}_target_scale.png")
+                                    plt.close()
+
+                                # Save sampled combinations for panel
+                                if save_stimuli_ and (float(relative_ori) in sampled_orientations and float(mod_phase) in sampled_phases):
+                                    if 'panel_grid' not in locals():
+                                        panel_grid = []
+                                    panel_grid.append((
+                                        grating.squeeze().detach().cpu().numpy(),
+                                        relative_ori, mod_sf, mod_phase
+                                    ))
+
+                                
+
+                                # Evaluate response
+                                resp = single_model(grating)
+                                # Create the entry for this modulator combination
+                                response_data = [relative_ori, mod_sf, mod_phase, resp.cpu().item()] 
+                                try:
+                                    dataset = mod_group.create_dataset(f"neuron_{neuron_id}", shape=(0, 4), maxshape=(None, 4), dtype='f4')
+                                except ValueError:
+                                    dataset = mod_group[f"neuron_{neuron_id}"]
+
+                                # Resize dataset to add the new response
+                                dataset.resize((dataset.shape[0] + 1, 4))
+
+                            # Save the new response to the dataset
+                                dataset[-1] = response_data
+
+
+                # Save panel samples if requested
+                # Show or save a structured grid panel
+                if save_stimuli_ and 'panel_grid' in locals():
+                    # Sort samples into a 2D matrix by orientation and phase
+                    panel_grid.sort(key=lambda x: (sampled_orientations.tolist().index(x[1]), sampled_phases.tolist().index(x[3])))
+
+                    nrows = len(sampled_phases)
+                    ncols = len(sampled_orientations)
+                    fig, axes = plt.subplots(nrows, ncols, figsize=(3*ncols, 3*nrows))
+
+                    for idx, (img, ori, sf, ph) in enumerate(panel_grid):
+                        row = sampled_phases.tolist().index(ph)
+                        col = sampled_orientations.tolist().index(ori)
+                        ax = axes[row, col]
+                        ax.imshow(img, cmap='gray', vmin=pixel_min, vmax=pixel_max)
+                        ax.set_title(f"ϕ={np.rad2deg(ph):.0f}°\nori={np.rad2deg(ori):.0f}°")
+                        ax.axis('off')
+
+                    fig.suptitle(
+                        f"""Stimulus Grid for {neuron}, with perferred parameters of the carrier: 
+                        ORI = {np.rad2deg(preferred_ori):.0f}°, SF = {preferred_sf:.0f}, phase = {np.rad2deg(preferred_phase):.0f}°""",
+                        fontsize=18,
+                        ha='center'
+                    
+                    )
+                    plt.subplots_adjust(top=0.75)  # Leave room for suptitle
+                    plt.tight_layout()       
+                    os.makedirs("/project/results/modulation/stimulus_grids/", exist_ok=True)
+                    plt.savefig(f"/project/results/modulation/stimulus_grids/stimulus_panel_grid_neuron_{neuron}.png")
+                    plt.close()
+
+
+
+

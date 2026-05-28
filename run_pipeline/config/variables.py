@@ -2,8 +2,13 @@ from __future__ import annotations
 
 import numpy as np
 
+# model import
 from classical_exps.core.tools.utils import pickleread
 from nnvision.models.trained_models.v1_task_fine_tuned import v1_convnext_ensemble
+
+# additional models for import can be setted up under core.models
+# and imported here, e.g.:
+# from core.models import my_model
 
 
 # =============================================================================
@@ -140,9 +145,7 @@ wanted_fam_order = [
 # Hallum 2014 — second-order surround orientation
 # =============================================================================
 
-# Currently no extra global parameters needed here.
-# Keep this section so variables.py follows the same article order as run_plan.py.
-
+# =============================================================================
 
 # =============================================================================
 # Shared analysis parameters
