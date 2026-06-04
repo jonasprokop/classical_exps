@@ -34,6 +34,8 @@ from classical_exps.core.simulations.freeman2013_naturalistic_texture_modulation
     plot_family_modulation_index_comparison,
     plot_neuron_mi_distribution_comparison,
     plot_texture_noise_ratio_comparison,
+    plot_texture_modulation_sign_summary,
+    plot_family_modulation_significance_comparison
 )
 
 
@@ -351,19 +353,21 @@ def texture_noise_response_results_2(
     neuron_ids,
     wanted_fam_order,
     scraped_texture_noise_config=None,
-
 ):  
-    ''' This function aims to visualise the average modulation index accross every neuron for each texture family.
-        The modulation index is defined as so : (response_texture - response_noise) / (response_texture + response_noise)
+    """
+    Visualise average modulation index across neurons for each texture family.
 
-        Prerequisite :
-            
-            - function 'texture_noise_response_experiment' executed for the required neurons
+    MI = (response_texture - response_noise) / (response_texture + response_noise)
 
-        Filtering :
-            
-            - None 
-    '''
+    Model statistics:
+        mean_mi_family = mean over model neurons
+        sem_mi_family  = SEM over model neurons
+        significance   = family-wise MI vs 0, approximate t-test from mean ± SEM
+
+    Article statistics:
+        scraped means and SEMs from digitized Freeman V1 panel
+        significance = approximate family-wise MI vs 0 from scraped mean ± SEM
+    """
 
     group_path = '/texture_noise_response'
     subgroup_tex_path = group_path + "/texture"
@@ -409,9 +413,22 @@ def texture_noise_response_results_2(
         all_noise_resp,
     )
 
+    n_neuron = mi_neuron_family.shape[0]
+
     # Mean across neurons -> one MI value per texture family
     mean_mi_family = np.mean(mi_neuron_family, axis=0)
 
+    if n_neuron > 1:
+        sem_mi_family = (
+            np.std(mi_neuron_family, axis=0, ddof=1)
+            / np.sqrt(n_neuron)
+        )
+    else:
+        sem_mi_family = np.zeros_like(mean_mi_family)
+
+    # ------------------------------------------------------------------
+    # Optional family order
+    # ------------------------------------------------------------------
     if wanted_fam_order is not None:
         dict_old_order = {fam: pos for pos, fam in enumerate(family_ids)}
 
@@ -423,63 +440,18 @@ def texture_noise_response_results_2(
 
         family_ids = family_ids[new_order]
         mean_mi_family = mean_mi_family[new_order]
+        sem_mi_family = sem_mi_family[new_order]
+        mi_neuron_family = mi_neuron_family[:, new_order]
 
     directory = "/project/results/texture_noise_response/"
     os.makedirs(directory, exist_ok=True)
 
-    x = np.arange(len(family_ids))
-
-    fig, ax = plt.subplots(figsize=(7.2, 2.7))
-
-    ax.bar(
-        x,
-        mean_mi_family,
-        width=0.62,
-        color="0.35",
-        edgecolor="black",
-        linewidth=0.8,
-        zorder=2,
-    )
-
-    ax.axhline(
-        0,
-        color="black",
-        linestyle="--",
-        linewidth=1.0,
-        zorder=1,
-    )
-
-    # Compact y-axis around observed model values.
-    abs_max = float(np.max(np.abs(mean_mi_family)))
-    ylim = max(0.10, abs_max * 1.25)
-
-    ax.set_ylim(-ylim, ylim)
-
-    ax.set_xticks(x)
-    ax.set_xticklabels(family_ids, fontsize=9)
-    ax.tick_params(axis="y", labelsize=9)
-
-    ax.set_xlabel("Texture family", fontsize=11)
-    ax.set_ylabel("Modulation index", fontsize=11)
-
-    # No title: closer to article panel / cleaner for poster.
-    ax.spines["top"].set_visible(False)
-    ax.spines["right"].set_visible(False)
-
-    plt.tight_layout()
-    plt.savefig(
-        os.path.join(directory, "average_modulation_index.png"),
-        dpi=220,
-        bbox_inches="tight",
-    )
-    plt.close(fig)
-
-    print(f"    > Mean MI across families: {np.mean(mean_mi_family):.4f}")
-    print("--------------------------------------")
-
-
+    # ------------------------------------------------------------------
+    # Scraped experimental V1 data
+    # ------------------------------------------------------------------
     scraped_mean_mi_family = None
     scraped_yerr = None
+    scraped_n = None
 
     if scraped_texture_noise_config is not None:
         scraped_block = scraped_texture_noise_config["texture_family_modulation"]["V1"]
@@ -504,14 +476,65 @@ def texture_noise_response_results_2(
             np.abs(scraped_high - scraped_mean_mi_family),
         ])
 
+        scraped_n = scraped_texture_noise_config[
+            "v1_modulation_index_distribution"
+        ]["n_cells_reported"]
+
+        # Important:
+        # Model family_ids are actual image-family IDs, e.g. "60".
+        # Scraped article families are ordinal labels 1..15.
+        # These are not the same namespace.
+        #
+        # If wanted_fam_order was chosen to put model families into the same
+        # visual/order positions as the article bars, the scraped arrays should
+        # stay in their native article order.
+
+    # ------------------------------------------------------------------
+    # Main family modulation figure
+    # ------------------------------------------------------------------
     plot_family_modulation_index_comparison(
         family_ids=family_ids,
         model_mean_mi_family=mean_mi_family,
-        save_path=os.path.join(directory, "average_modulation_index.png"),
+        model_yerr=sem_mi_family,
+        model_n=n_neuron,
+        save_path=os.path.join(directory, "average_modulation_index.svg"),
         scraped_mean_mi_family=scraped_mean_mi_family,
         scraped_yerr=scraped_yerr,
+        scraped_n=scraped_n,
         scraped_label="Experimental",
+        show_significance=True,
     )
+
+    # ------------------------------------------------------------------
+    # Dedicated family-wise significance comparison
+    # ------------------------------------------------------------------
+    if scraped_texture_noise_config is not None:
+        plot_family_modulation_significance_comparison(
+            family_ids=family_ids,
+            model_mi_neuron_family=mi_neuron_family,
+            scraped_config=scraped_texture_noise_config,
+            save_path=os.path.join(
+                directory,
+                "family_modulation_significance_comparison.svg",
+            ),
+            article_area="V1",
+            article_n=scraped_texture_noise_config[
+                "v1_modulation_index_distribution"
+            ]["n_cells_reported"],
+            model_label="Model",
+            article_label="Experimental V1",
+        )
+
+    print(f"    > Mean MI across families: {np.mean(mean_mi_family):.4f}")
+    print(f"    > Family MI plot saved to: {directory}average_modulation_index.png")
+
+    if scraped_texture_noise_config is not None:
+        print(
+            "    > Family significance comparison saved to: "
+            f"{directory}family_modulation_significance_comparison.svg"
+        )
+
+    print("--------------------------------------")
 
 def texture_noise_response_results_3(
     h5_file, 
@@ -631,7 +654,7 @@ def texture_noise_response_results_3(
 
     directory = "/project/results/texture_noise_response/"
     os.makedirs(directory, exist_ok=True)
-    plt.savefig(directory + "distribution_of_modulation_index.png", dpi=180, bbox_inches="tight")
+    plt.savefig(directory + "distribution_of_modulation_index.svg", dpi=180, bbox_inches="tight")
     plt.close()
 
     print(f"    > Mean neuron MI: {meanval:.4f}")
@@ -639,6 +662,18 @@ def texture_noise_response_results_3(
 
     plot_neuron_mi_distribution_comparison(
         model_mean_mi_neuron=mean_mi_neuron,
-        save_path=os.path.join(directory, "distribution_of_modulation_index.png"),
+        save_path=os.path.join(directory, "distribution_of_modulation_index.svg"),
         scraped_config=scraped_texture_noise_config,
     )
+
+    if scraped_texture_noise_config is not None:
+        plot_texture_modulation_sign_summary(
+            model_mean_mi_neuron=mean_mi_neuron,
+            scraped_config=scraped_texture_noise_config,
+            save_path=os.path.join(
+                directory,
+                "texture_modulation_sign_summary.svg",
+            ),
+            model_label="Model",
+            article_label="Experimental V1",
+        )

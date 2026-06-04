@@ -94,12 +94,12 @@ RUN_ANALYSES = {
     # -------------------------------------------------------------------------
     # 5. Freeman 2013 — texture/noise modulation
     # -------------------------------------------------------------------------
-    # "freeman2013_texture_noise.texture_noise_response",
+    "freeman2013_texture_noise.texture_noise_response",
 
     # -------------------------------------------------------------------------
     # 6. Hallum 2014 — second-order surround orientation
     # -------------------------------------------------------------------------
-    "hallum2014_second_order_orientation.second_order_orientation",
+    # "hallum2014_second_order_orientation.second_order_orientation",
 }
 
 

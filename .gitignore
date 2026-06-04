@@ -34,6 +34,7 @@ classical_exps/old_functions_3.py
 surroundmodulation/utils/gratings.py
 run_pipeline/config/configuration.py
 surroundmodulation/analyses.py
+run_pipeline/config/variables_variables_musa.py
 
 # Experiments
 experiments_convnext/
