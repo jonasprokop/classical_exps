@@ -154,7 +154,8 @@ def contrast_size_tuning_experiment_all_phases(
     device = None,
     size = 2.67,
     img_res = [93,93],
-    neg_val = True
+    neg_val = True,
+    contrast=None,
 ):
     ''' For the selected neurons this function :
 
@@ -285,7 +286,3 @@ def contrast_size_tuning_experiment_all_phases(
                         GSF_high if GSF_high is not None else np.nan,
                         GSFs_ratio]
                 subgroup_cst_results.create_dataset(name=neuron, data=data)
-
-
-from matplotlib.colors import Normalize
-from matplotlib.cm import ScalarMappable

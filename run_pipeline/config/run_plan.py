@@ -12,8 +12,6 @@ from run_pipeline.config.experimental_scraped_data import (
     hallum2014_second_order_surround_scraped_data,
 )
 
-
-
 # =============================================================================
 # Run selection
 # =============================================================================
@@ -70,14 +68,11 @@ RUN_ANALYSES = {
     # -------------------------------------------------------------------------
     # 1. Pre-experimental / pre-analysis
     # -------------------------------------------------------------------------
-    # Usually no standalone analysis here.
+    # No standalone analysis here.
 
     # -------------------------------------------------------------------------
     # 2. Cavanaugh 2002 — center-surround gain / Nature and Interaction
     # -------------------------------------------------------------------------
-    # "cavanaugh2002_center_surround_gain.size_tuning",
-    # "cavanaugh2002_center_surround_gain.contrast_response",
-    # "cavanaugh2002_center_surround_gain.contrast_size_tuning",
     # "cavanaugh2002_center_surround_gain.full_analysis",
 
     # -------------------------------------------------------------------------
@@ -94,12 +89,12 @@ RUN_ANALYSES = {
     # -------------------------------------------------------------------------
     # 5. Freeman 2013 — texture/noise modulation
     # -------------------------------------------------------------------------
-    "freeman2013_texture_noise.texture_noise_response",
+    # "freeman2013_texture_noise.texture_noise_response",
 
     # -------------------------------------------------------------------------
     # 6. Hallum 2014 — second-order surround orientation
     # -------------------------------------------------------------------------
-    # "hallum2014_second_order_orientation.second_order_orientation",
+    "hallum2014_second_order_orientation.second_order_orientation",
 }
 
 
@@ -311,9 +306,6 @@ CAVANAUGH_CENTER_SURROUND_GAIN = [
                     "surround_contrasts": surround_contrasts,
                     "contrasts": contrasts_article_1,
                     "radii": radii,
-
-                    "fit_err_thresh": fit_err_thresh,
-                    "supp_thresh": supp_thresh,
 
                     "sort_by_std": sort_by_std,
                     "spread_to_plot": spread_to_plot,

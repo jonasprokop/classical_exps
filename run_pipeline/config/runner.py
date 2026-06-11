@@ -107,7 +107,7 @@ def ask_for_acceptance(
         return True
 
     answer = input(prompt).strip().lower()
-    return answer in {"y", "yes"}
+    return answer in {"","y", "yes"}
 
 
 def run_steps(

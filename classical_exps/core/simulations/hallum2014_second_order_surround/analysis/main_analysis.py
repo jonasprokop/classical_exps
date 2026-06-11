@@ -82,10 +82,6 @@ def recreate_histograms_second_order_orientation(
             mod_phases = mod_group_data[:, 2]
             responses = mod_group_data[:, 3]
 
-            max_response_idx = np.argmax(responses)
-            max_orientation = relative_orientations[max_response_idx]
-            max_response = responses[max_response_idx]
-
             unique_orientations = np.unique(relative_orientations)
             vector_sums = []
             averaged_relative_ori = []
@@ -149,6 +145,8 @@ def recreate_histograms_second_order_orientation(
            
             results_sosi.append([observed_sosi, p_value, is_significant])
 
+            pref_idx = int(np.argmax(responses))
+            max_orientation = relative_orientations[pref_idx]
             second_order_preferences.append(max_orientation)
 
             if plot_circular_tunning_curves_flag:
@@ -179,11 +177,11 @@ def recreate_histograms_second_order_orientation(
             second_order_preferences,
             results_sosi,
             scraped_config=scraped_second_order_config,
-            save_path="/project/results/modulation/second_order_preferences_scraped_comparison.png",
+            save_path="/project/results/modulation/second_order_preferences_scraped_comparison.svg",
         )
 
         plot_sosi_histogram_scraped_comparison(
             results_sosi,
             scraped_config=scraped_second_order_config,
-            save_path="/project/results/modulation/sosi_distribution_scraped_comparison.png",
+            save_path="/project/results/modulation/sosi_distribution_scraped_comparison.svg",
         )

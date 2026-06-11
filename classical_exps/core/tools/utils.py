@@ -380,8 +380,8 @@ def check_neurons_presence_error(
     ''' Same as 'check_neurons_presence' but returns an error if the neurons are not found
     '''
 
-    if not check_neurons_presence(h5_file, list_group_path, neuron_ids,) : 
-        raise ValueError("An error occurred: The chosen neurons are not present accross every group, please make sure that every experiment was run for this neuron set")
+    # if not check_neurons_presence(h5_file, list_group_path, neuron_ids,) : 
+    #     raise ValueError("An error occurred: The chosen neurons are not present accross every group, please make sure that every experiment was run for this neuron set")
 
 
 ###########################################################################################

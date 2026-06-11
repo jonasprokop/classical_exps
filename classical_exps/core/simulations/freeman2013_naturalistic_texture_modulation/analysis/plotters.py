@@ -11,329 +11,8 @@ from  classical_exps.core.simulations.freeman2013_naturalistic_texture_modulatio
     _mi_to_texture_noise_ratio,
 )
 
-def plot_family_modulation_index_comparison(
-    family_ids,
-    model_mean_mi_family,
-    *,
-    save_path,
-    model_yerr=None,
-    model_n=None,
-    scraped_mean_mi_family=None,
-    scraped_yerr=None,
-    scraped_n=None,
-    scraped_label="Article V1",
-    show_significance=True,
-):
-    """
-    Bar plot of mean modulation index by texture family.
-
-    Plot:
-        - model family mean MI
-        - optional model SEM
-        - optional scraped/article family mean MI
-        - optional scraped/article SEM
-        - optional MI-vs-zero significance stars for both
-
-    Statistical stars:
-        - model: approximate t-test from mean ± SEM and model_n
-        - article: approximate t-test from scraped mean ± SEM and scraped_n
-
-    Convention:
-        MI > 0  => texture response > noise response
-        MI < 0  => noise response > texture response
-    """
-    os.makedirs(os.path.dirname(save_path), exist_ok=True)
-
-    family_ids = np.asarray(family_ids).astype(str)
-    model_mean_mi_family = np.asarray(model_mean_mi_family, dtype=float)
-
-    n_family = len(family_ids)
-
-    if len(model_mean_mi_family) != n_family:
-        raise ValueError(
-            "family_ids and model_mean_mi_family length mismatch: "
-            f"{n_family} vs {len(model_mean_mi_family)}"
-        )
-
-    if model_yerr is not None:
-        model_yerr = np.asarray(model_yerr, dtype=float)
-
-        if model_yerr.shape not in [(n_family,), (2, n_family)]:
-            raise ValueError(
-                "model_yerr must have shape (n_family,) or (2, n_family), "
-                f"got {model_yerr.shape}"
-            )
-
-    has_scraped = scraped_mean_mi_family is not None
-
-    if has_scraped:
-        scraped_mean_mi_family = np.asarray(scraped_mean_mi_family, dtype=float)
-
-        if len(scraped_mean_mi_family) != n_family:
-            raise ValueError(
-                "scraped_mean_mi_family and family_ids length mismatch: "
-                f"{len(scraped_mean_mi_family)} vs {n_family}"
-            )
-
-        if scraped_yerr is not None:
-            scraped_yerr = np.asarray(scraped_yerr, dtype=float)
-
-            if scraped_yerr.shape not in [(n_family,), (2, n_family)]:
-                raise ValueError(
-                    "scraped_yerr must have shape (n_family,) or (2, n_family), "
-                    f"got {scraped_yerr.shape}"
-                )
-
-    # ------------------------------------------------------------------
-    # Compute approximate p-values from mean ± SEM
-    # ------------------------------------------------------------------
-    model_p_values = None
-
-    if show_significance and model_yerr is not None and model_n is not None:
-        model_n = int(model_n)
-
-        if model_n > 1:
-            if model_yerr.ndim == 1:
-                model_sem = model_yerr
-            else:
-                model_sem = 0.5 * (model_yerr[0] + model_yerr[1])
-
-            model_p_values = np.full(n_family, np.nan, dtype=float)
-
-            for i in range(n_family):
-                mean_i = float(model_mean_mi_family[i])
-                sem_i = float(model_sem[i])
-
-                if np.isfinite(mean_i) and np.isfinite(sem_i) and sem_i > 0:
-                    t_val = mean_i / sem_i
-                    model_p_values[i] = float(
-                        2.0 * stats.t.sf(abs(t_val), df=model_n - 1)
-                    )
-
-    scraped_p_values = None
-
-    if (
-        show_significance
-        and has_scraped
-        and scraped_yerr is not None
-        and scraped_n is not None
-    ):
-        scraped_n = int(scraped_n)
-
-        if scraped_n > 1:
-            if scraped_yerr.ndim == 1:
-                scraped_sem = scraped_yerr
-            else:
-                scraped_sem = 0.5 * (scraped_yerr[0] + scraped_yerr[1])
-
-            scraped_p_values = np.full(n_family, np.nan, dtype=float)
-
-            for i in range(n_family):
-                mean_i = float(scraped_mean_mi_family[i])
-                sem_i = float(scraped_sem[i])
-
-                if np.isfinite(mean_i) and np.isfinite(sem_i) and sem_i > 0:
-                    t_val = mean_i / sem_i
-                    scraped_p_values[i] = float(
-                        2.0 * stats.t.sf(abs(t_val), df=scraped_n - 1)
-                    )
-
-    # ------------------------------------------------------------------
-    # Plot bars
-    # ------------------------------------------------------------------
-    x = np.arange(n_family)
-
-    fig, ax = plt.subplots(figsize=(8.2, 3.0))
-
-    if has_scraped:
-        width = 0.36
-        model_x = x - width / 2
-        scraped_x = x + width / 2
-    else:
-        width = 0.62
-        model_x = x
-        scraped_x = None
-
-    ax.bar(
-        model_x,
-        model_mean_mi_family,
-        yerr=model_yerr,
-        width=width,
-        facecolor="0.35",
-        edgecolor="black",
-        linewidth=0.8,
-        capsize=3 if model_yerr is not None else 0,
-        error_kw=dict(elinewidth=1.0, capthick=1.0),
-        label="Model",
-        zorder=2,
-    )
-
-    ylim_values = [model_mean_mi_family]
-
-    if model_yerr is not None:
-        if model_yerr.ndim == 1:
-            ylim_values.extend([
-                model_mean_mi_family + model_yerr,
-                model_mean_mi_family - model_yerr,
-            ])
-        else:
-            ylim_values.extend([
-                model_mean_mi_family + model_yerr[1],
-                model_mean_mi_family - model_yerr[0],
-            ])
-
-    if has_scraped:
-        ax.bar(
-            scraped_x,
-            scraped_mean_mi_family,
-            yerr=scraped_yerr,
-            width=width,
-            facecolor="white",
-            edgecolor="black",
-            linewidth=0.8,
-            hatch="///",
-            capsize=3 if scraped_yerr is not None else 0,
-            error_kw=dict(elinewidth=1.0, capthick=1.0),
-            label=scraped_label,
-            zorder=2,
-        )
-
-        ylim_values.append(scraped_mean_mi_family)
-
-        if scraped_yerr is not None:
-            if scraped_yerr.ndim == 1:
-                ylim_values.extend([
-                    scraped_mean_mi_family + scraped_yerr,
-                    scraped_mean_mi_family - scraped_yerr,
-                ])
-            else:
-                ylim_values.extend([
-                    scraped_mean_mi_family + scraped_yerr[1],
-                    scraped_mean_mi_family - scraped_yerr[0],
-                ])
-
-    ax.axhline(
-        0,
-        color="black",
-        linestyle="--",
-        linewidth=1.0,
-        zorder=1,
-    )
-
-    finite_ylim_values = np.concatenate(ylim_values)
-    finite_ylim_values = finite_ylim_values[np.isfinite(finite_ylim_values)]
-
-    abs_max = float(np.max(np.abs(finite_ylim_values))) if len(finite_ylim_values) else 0.1
-
-    # Extra headroom for stars.
-    ylim = max(0.10, abs_max * 1.45)
-    ax.set_ylim(-ylim, ylim)
-
-    # ------------------------------------------------------------------
-    # Add significance stars
-    # ------------------------------------------------------------------
-    if show_significance:
-        star_offset = 0.035 * (2.0 * ylim)
-
-        if model_yerr is None:
-            model_upper_err = np.zeros(n_family, dtype=float)
-            model_lower_err = np.zeros(n_family, dtype=float)
-        elif model_yerr.ndim == 1:
-            model_upper_err = model_yerr
-            model_lower_err = model_yerr
-        else:
-            model_lower_err = model_yerr[0]
-            model_upper_err = model_yerr[1]
-
-        if model_p_values is not None:
-            for i, p in enumerate(model_p_values):
-                if not np.isfinite(p):
-                    star = "n/a"
-                elif p < 0.001:
-                    star = "***"
-                elif p < 0.01:
-                    star = "**"
-                elif p < 0.05:
-                    star = "*"
-                else:
-                    star = "n.s."
-
-                mean_i = model_mean_mi_family[i]
-
-                if mean_i >= 0:
-                    y_star = mean_i + model_upper_err[i] + star_offset
-                    va = "bottom"
-                else:
-                    y_star = mean_i - model_lower_err[i] - star_offset
-                    va = "top"
-
-                ax.text(
-                    model_x[i],
-                    y_star,
-                    star,
-                    ha="center",
-                    va=va,
-                    fontsize=6,
-                    color="black",
-                    zorder=5,
-                )
-
-        if has_scraped and scraped_p_values is not None:
-            if scraped_yerr is None:
-                scraped_upper_err = np.zeros(n_family, dtype=float)
-                scraped_lower_err = np.zeros(n_family, dtype=float)
-            elif scraped_yerr.ndim == 1:
-                scraped_upper_err = scraped_yerr
-                scraped_lower_err = scraped_yerr
-            else:
-                scraped_lower_err = scraped_yerr[0]
-                scraped_upper_err = scraped_yerr[1]
-
-            for i, p in enumerate(scraped_p_values):
-                if not np.isfinite(p):
-                    star = "n/a"
-                elif p < 0.001:
-                    star = "***"
-                elif p < 0.01:
-                    star = "**"
-                elif p < 0.05:
-                    star = "*"
-                else:
-                    star = "n.s."
-                mean_i = scraped_mean_mi_family[i]
-
-                if mean_i >= 0:
-                    y_star = mean_i + scraped_upper_err[i] + star_offset
-                    va = "bottom"
-                else:
-                    y_star = mean_i - scraped_lower_err[i] - star_offset
-                    va = "top"
-
-                ax.text(
-                    scraped_x[i],
-                    y_star,
-                    star,
-                    ha="center",
-                    va=va,
-                    fontsize=6,
-                    color="black",
-                    zorder=5,
-                )
-
-    ax.set_xticks(x)
-    ax.set_xticklabels(family_ids, fontsize=9)
-
-    ax.set_xlabel("Texture family", fontsize=11)
-    ax.set_ylabel("Modulation index", fontsize=11)
-
-    if has_scraped:
-        ax.legend(frameon=False, fontsize=9, ncol=2)
-
-    _finish_article_axes(ax)
-
-    plt.tight_layout()
-    plt.savefig(save_path, dpi=220, bbox_inches="tight")
-    plt.close(fig)
+ARTICLE_COLOR = "black"
+MODEL_COLOR = "#2F5D8C"
 
 def plot_neuron_mi_distribution_comparison(
     model_mean_mi_neuron,
@@ -372,7 +51,7 @@ def plot_neuron_mi_distribution_comparison(
             linewidth=0.8,
             density=False,
             weights=weights,
-            facecolor="0.55",
+            facecolor=MODEL_COLOR,
             label="Model",
         )
 
@@ -396,31 +75,27 @@ def plot_neuron_mi_distribution_comparison(
         # Make the within-pair gap equal to the between-pair gap.
         # For equally spaced centers:
         #     bin_step = 2 * bar_width + 2 * gap
-        gap = 0.12 * bin_step
-        bar_width = (bin_step - 2.0 * gap) / 2.0
-        offset = (bar_width + gap) / 2.0
+        bar_width = 0.45 * bin_step
 
         ax.bar(
-            centers - offset,
-            model_prop,
+            centers - bar_width / 2,
+            scraped_prop,
             width=bar_width,
-            facecolor="0.45",
+            facecolor=ARTICLE_COLOR,
             edgecolor="black",
             linewidth=0.8,
-            # hatch="",
-            label="Model",
+            label="Experimental",
             zorder=2,
         )
 
         ax.bar(
-            centers + offset,
-            scraped_prop,
+            centers + bar_width / 2,
+            model_prop,
             width=bar_width,
-            facecolor="white",
+            facecolor=MODEL_COLOR,
             edgecolor="black",
             linewidth=0.8,
-            # hatch="///",
-            label="Experimental",
+            label="Model",
             zorder=2,
         )
 
@@ -452,7 +127,7 @@ def plot_neuron_mi_distribution_comparison(
     ax.set_xticks([-0.5, 0.0, 0.5])
 
     ax.set_xlabel("Mean modulation index", fontsize=11)
-    ax.set_ylabel("% of neurons", fontsize=11)
+    ax.set_ylabel("Proportion of neurons", fontsize=11)
 
     ax.legend(frameon=False, fontsize=9)
 
@@ -767,7 +442,7 @@ def plot_texture_modulation_sign_summary(
         means,
         yerr=sems,
         width=0.62,
-        color=["0.72", "0.35"],
+        color=[ARTICLE_COLOR, MODEL_COLOR],
         edgecolor="black",
         linewidth=0.9,
         capsize=4,
@@ -795,32 +470,12 @@ def plot_texture_modulation_sign_summary(
         ax.text(
             x[i],
             y + offset,
-            f"{_stars(p)}\n{_p_to_text(p)}",
+            _stars(p),
             ha="center",
             va=va,
             fontsize=9,
         )
 
-    ax.text(
-        0.5,
-        0.98,
-        f"Model vs V1: approx. {_p_to_text(p_diff)}",
-        transform=ax.transAxes,
-        ha="center",
-        va="top",
-        fontsize=9,
-    )
-
-    ax.text(
-        0.02,
-        0.03,
-        "MI > 0: texture > noise\nMI < 0: noise > texture",
-        transform=ax.transAxes,
-        ha="left",
-        va="bottom",
-        fontsize=8.5,
-        color="0.25",
-    )
 
     ax.set_xticks(x)
     ax.set_xticklabels(labels, fontsize=10)
@@ -999,31 +654,32 @@ def plot_family_modulation_significance_comparison(
             )
 
     x = np.arange(len(family_ids))
-    width = 0.38
+    width = 0.36
 
-    fig, ax = plt.subplots(figsize=(8.2, 3.3))
+    fig, ax = plt.subplots(figsize=(8.2, 3.0))
 
+    # experiment first
     ax.bar(
         x - width / 2,
         article_mean,
         yerr=article_sem,
         width=width,
-        facecolor="white",
+        facecolor=ARTICLE_COLOR,
         edgecolor="black",
         linewidth=0.8,
-        hatch="///",
         capsize=3,
         error_kw=dict(elinewidth=1.0, capthick=1.0),
         label=article_label,
         zorder=2,
     )
 
+    # model second
     ax.bar(
         x + width / 2,
         model_mean,
         yerr=model_sem,
         width=width,
-        facecolor="0.35",
+        facecolor=MODEL_COLOR,
         edgecolor="black",
         linewidth=0.8,
         capsize=3,
@@ -1035,7 +691,7 @@ def plot_family_modulation_significance_comparison(
     ax.axhline(
         0,
         color="black",
-        linestyle="--",
+        linestyle="-",
         linewidth=1.0,
         zorder=1,
     )
@@ -1055,26 +711,34 @@ def plot_family_modulation_significance_comparison(
     for i in range(len(family_ids)):
         article_star = _p_to_star_marker(article_p[i])
         if article_star:
-            y = article_mean[i] + article_sem[i] if article_mean[i] >= 0 else article_mean[i] - article_sem[i]
+            y = (
+                article_mean[i] + article_sem[i]
+                if article_mean[i] >= 0
+                else article_mean[i] - article_sem[i]
+            )
             ax.text(
                 x[i] - width / 2,
                 y + star_offset if article_mean[i] >= 0 else y - star_offset,
                 article_star,
                 ha="center",
                 va="bottom" if article_mean[i] >= 0 else "top",
-                fontsize=9,
+                fontsize=6,
             )
 
         model_star = _p_to_star_marker(model_p[i])
         if model_star:
-            y = model_mean[i] + model_sem[i] if model_mean[i] >= 0 else model_mean[i] - model_sem[i]
+            y = (
+                model_mean[i] + model_sem[i]
+                if model_mean[i] >= 0
+                else model_mean[i] - model_sem[i]
+            )
             ax.text(
                 x[i] + width / 2,
                 y + star_offset if model_mean[i] >= 0 else y - star_offset,
                 model_star,
                 ha="center",
                 va="bottom" if model_mean[i] >= 0 else "top",
-                fontsize=9,
+                fontsize=6,
             )
 
     ax.set_xticks(x)
@@ -1083,27 +747,10 @@ def plot_family_modulation_significance_comparison(
     ax.set_xlabel("Texture family", fontsize=11)
     ax.set_ylabel("Modulation index", fontsize=11)
 
-    ax.legend(frameon=False, fontsize=9, ncol=2, loc="upper right")
-
-    ax.text(
-        0.01,
-        0.03,
-        "Stars: family-wise MI vs 0\nArticle p-values approximate from scraped mean ± SEM",
-        transform=ax.transAxes,
-        ha="left",
-        va="bottom",
-        fontsize=8,
-        color="0.25",
-    )
+    ax.legend(frameon=False, fontsize=9, ncol=2)
 
     _finish_article_axes(ax)
 
     plt.tight_layout()
     plt.savefig(save_path, dpi=220, bbox_inches="tight")
     plt.close(fig)
-
-    print("Family-wise MI significance comparison saved:")
-    print(f"    > plot: {save_path}")
-    print(f"    > table: {csv_path}")
-
-

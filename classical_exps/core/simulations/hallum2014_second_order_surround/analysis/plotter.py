@@ -9,6 +9,10 @@ from classical_exps.core.simulations.hallum2014_second_order_surround.analysis.t
     _unit_circle_ax
 )
 
+ARTICLE_COLOR = "black"
+MODEL_COLOR = "#2F5D8C"
+
+
 def plot_second_order_orientation_preferences(
     second_order_preferences,
     results_sosi=None,
@@ -29,7 +33,7 @@ def plot_second_order_orientation_preferences(
 
     # keep values inside [-90, 90]
     # useful if numerical precision gives e.g. 90.0000001
-    prefs_deg = np.clip(prefs_deg, -90, 90)
+    prefs_deg = ((np.degrees(second_order_preferences) + 90) % 180) - 90
 
     # Manual Cavanaugh-like bins:
     # narrow edge bins, wider inner bins
@@ -120,7 +124,7 @@ from matplotlib.ticker import MultipleLocator
 def plot_sosi_histogram(
     results_sosi,
     bins=8,
-    save_path="/project/results/modulation/osi_distribution.png",
+    save_path="/project/results/modulation/osi_distribution.svg",
 ):
     """
     Plot SOSI distribution.
@@ -461,6 +465,7 @@ def _style_hallum_small_axis(ax, *, fontsize=8):
 
     for label in ax.get_xticklabels() + ax.get_yticklabels():
         label.set_fontsize(fontsize)
+
 def plot_second_order_orientation_preferences_scraped_comparison(
     second_order_preferences,
     results_sosi=None,
@@ -471,10 +476,16 @@ def plot_second_order_orientation_preferences_scraped_comparison(
     """
     Model-vs-Hallum comparison for second-order orientation preference.
 
-    Important:
-    This is a wrapped orientation-space histogram. The edge bars at -90 and +90
-    are visual halves of the same circular bin. For clarity, we use categorical
-    display positions with equal visual bin widths, while keeping degree labels.
+    Correct wrapped-orientation logic:
+        Unique probability bins are:
+            [-90/90], [-45], [0], [45]
+
+        For plotting only, the edge bin is duplicated:
+            [-90], [-45], [0], [45], [90]
+
+    Therefore:
+        - unique 4-bin distributions sum to 1
+        - displayed 5 bars do NOT sum to 1, because -90 and +90 are the same bin shown twice
     """
 
     fontsize = 8
@@ -488,87 +499,144 @@ def plot_second_order_orientation_preferences_scraped_comparison(
 
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
 
-    prefs_deg = np.degrees(second_order_preferences)
-    prefs_deg = np.clip(prefs_deg, -90, 90)
+    # ------------------------------------------------------------------
+    # Model preferences: radians -> wrapped degrees in [-90, 90)
+    # ------------------------------------------------------------------
+    prefs_deg = np.asarray(second_order_preferences, dtype=float)
+    prefs_deg = np.rad2deg(prefs_deg)
+    prefs_deg = ((prefs_deg + 90) % 180) - 90
     prefs_deg = prefs_deg[np.isfinite(prefs_deg)]
 
     if prefs_deg.size == 0:
         raise ValueError("No finite second-order preference values found.")
 
-    # Real circular binning in degree space.
-    # Edge bins are the split wraparound bin.
+    # ------------------------------------------------------------------
+    # Real model binning:
+    #
+    # We use five geometric bins because the wrapped edge is split across
+    # both ends of the interval:
+    #
+    #   edge-left   : [-90, -67.5)
+    #   -45 bin     : [-67.5, -22.5)
+    #    0 bin      : [-22.5,  22.5)
+    #    45 bin     : [ 22.5,  67.5)
+    #   edge-right  : [ 67.5,  90]
+    #
+    # Then we recombine edge-left + edge-right into one true circular bin.
+    # ------------------------------------------------------------------
     degree_edges = np.array([-90, -67.5, -22.5, 22.5, 67.5, 90], dtype=float)
-
     counts, _ = np.histogram(prefs_deg, bins=degree_edges)
 
     edge_total = counts[0] + counts[-1]
-    model_props = np.array(
+
+    model_props_unique = np.array(
         [
-            edge_total / 2,
+            edge_total,
             counts[1],
             counts[2],
             counts[3],
-            edge_total / 2,
         ],
-        dtype=float,
-    ) / prefs_deg.size
-
-    exp_eval = np.asarray(
-        scraped.get(
-            "wrapped_proportion_of_cells_evaluated",
-            scraped["wrapped_proportion_of_cells"],
-        ),
         dtype=float,
     )
 
-    if exp_eval.size != 4:
-        raise ValueError("Expected four experimental orientation bins.")
+    model_props_unique = model_props_unique / model_props_unique.sum()
 
-    exp_props = np.array(
+    # Duplicate edge bin for visual closure only.
+    model_props_plot = np.array(
         [
-            exp_eval[0] / 2,
-            exp_eval[1],
-            exp_eval[2],
-            exp_eval[3],
-            exp_eval[0] / 2,
+            model_props_unique[0],
+            model_props_unique[1],
+            model_props_unique[2],
+            model_props_unique[3],
+            model_props_unique[0],
         ],
         dtype=float,
     )
 
-    # Display positions: equal visual slots.
-    # This prevents the edge split-bin from looking like a broken half-width bin.
+    # ------------------------------------------------------------------
+    # Experimental scraped distribution:
+    #
+    # Expected order:
+    #   [-90/90], [-45], [0], [45]
+    #
+    # Scraped values may not sum exactly to 1 due to digitization, so
+    # normalize the unique 4-bin distribution before plotting.
+    # ------------------------------------------------------------------
+    exp_props_unique = np.asarray(
+        scraped["wrapped_proportion_of_cells"],
+        dtype=float,
+    )
+
+    if exp_props_unique.size != 4:
+        raise ValueError(
+            "Expected four experimental orientation bins: [-90/90], [-45], [0], [45]."
+        )
+
+    exp_props_unique = exp_props_unique[np.isfinite(exp_props_unique)]
+
+    if exp_props_unique.size != 4:
+        raise ValueError("Experimental orientation distribution contains non-finite values.")
+
+    exp_sum_raw = exp_props_unique.sum()
+    if exp_sum_raw <= 0:
+        raise ValueError("Experimental orientation distribution sums to zero or below.")
+
+    exp_props_unique = exp_props_unique / exp_sum_raw
+
+    # Duplicate edge bin for visual closure only.
+    exp_props_plot = np.array(
+        [
+            exp_props_unique[0],
+            exp_props_unique[1],
+            exp_props_unique[2],
+            exp_props_unique[3],
+            exp_props_unique[0],
+        ],
+        dtype=float,
+    )
+
+    # Optional sanity print. Useful once, then delete/comment if noisy.
+    print(
+        "[second-order orientation comparison] "
+        f"experimental unique sum={exp_props_unique.sum():.6f}, "
+        f"experimental displayed sum={exp_props_plot.sum():.6f}; "
+        f"model unique sum={model_props_unique.sum():.6f}, "
+        f"model displayed sum={model_props_plot.sum():.6f}"
+    )
+
+    # ------------------------------------------------------------------
+    # Plot
+    # ------------------------------------------------------------------
     x = np.arange(5, dtype=float)
     xlabels = ["−90", "−45", "0", "45", "90"]
 
     fig, ax = plt.subplots(figsize=(4.0, 2.6))
 
     total_width = 0.78
-    inner_gap = 0.08
-    bar_width = (total_width - inner_gap) / 2
+    bar_width = total_width / 2
 
     exp_left = x - total_width / 2
-    model_left = exp_left + bar_width + inner_gap
+    model_left = exp_left + bar_width
 
     ax.bar(
         exp_left,
-        exp_props,
+        exp_props_plot,
         width=bar_width,
         align="edge",
-        facecolor="0.7",
-        edgecolor="black",
+        facecolor=ARTICLE_COLOR,
+        edgecolor=ARTICLE_COLOR,
         linewidth=0.8,
         label="Experimental",
     )
 
     ax.bar(
         model_left,
-        model_props,
+        model_props_plot,
         width=bar_width,
         align="edge",
-        facecolor="white",
-        edgecolor="black",
+        facecolor=MODEL_COLOR,
+        edgecolor=MODEL_COLOR,
         linewidth=0.8,
-        hatch="///",
         label="Model",
     )
 
@@ -576,7 +644,7 @@ def plot_second_order_orientation_preferences_scraped_comparison(
     ax.set_xticks(x)
     ax.set_xticklabels(xlabels)
 
-    ymax = max(np.max(exp_props), np.max(model_props))
+    ymax = max(np.max(exp_props_plot), np.max(model_props_plot))
     ax.set_ylim(0, ymax * 1.18 if ymax > 0 else 1)
 
     ax.set_xlabel(
@@ -598,6 +666,7 @@ def plot_second_order_orientation_preferences_scraped_comparison(
     fig.tight_layout()
     fig.savefig(save_path, dpi=300, bbox_inches="tight")
     plt.close(fig)
+
 
 def plot_sosi_histogram_scraped_comparison(
     results_sosi,
@@ -643,24 +712,23 @@ def plot_sosi_histogram_scraped_comparison(
     model_props = counts / sosi_values.size
 
     fig, ax = plt.subplots(figsize=(4.0, 2.6))
-
+    
     total_frac = 0.82
-    gap_frac = 0.08
+    gap_frac = 0.0
 
     total_used = widths * total_frac
-    inner_gap = widths * gap_frac
-    bar_width = (total_used - inner_gap) / 2
+    bar_width = total_used / 2
 
     exp_left = centers - total_used / 2
-    model_left = exp_left + bar_width + inner_gap
+    model_left = exp_left + bar_width
 
     ax.bar(
         exp_left,
         exp_props,
         width=bar_width,
         align="edge",
-        facecolor="0.7",
-        edgecolor="black",
+        facecolor=ARTICLE_COLOR,
+        edgecolor=ARTICLE_COLOR,
         linewidth=0.8,
         label="Experimental",
     )
@@ -670,10 +738,9 @@ def plot_sosi_histogram_scraped_comparison(
         model_props,
         width=bar_width,
         align="edge",
-        facecolor="white",
-        edgecolor="black",
+        facecolor=MODEL_COLOR,
+        edgecolor=MODEL_COLOR,
         linewidth=0.8,
-        hatch="///",
         label="Model",
     )
 

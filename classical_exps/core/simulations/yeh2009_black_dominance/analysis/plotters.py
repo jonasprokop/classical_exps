@@ -31,6 +31,15 @@ from matplotlib.patches import Patch
 BLACK_FILL = "0.35"
 WHITE_FILL = "0.80"
 
+BLACK = "black"
+DARK = "0.20"
+MID = "0.45"
+LIGHT = "0.85"
+WHITE = "white"
+
+ARTICLE_COLOR = BLACK
+MODEL_COLOR = "#2F5D8C"
+
 def plot_logSNRwb(
     logSNR_OFF,
     logSNR_ON,
@@ -159,8 +168,6 @@ def plot_logSNRwb(
     os.makedirs(directory, exist_ok=True)
     plt.savefig(directory + f"plot_logSNRwb.png")
     plt.close(fig)
-
-
 
 def plot_black_white_difference_panels(
     true_maps,
@@ -1043,17 +1050,41 @@ def plot_black_white_histogram_comparison(
     *,
     save_path,
     title=None,
-    use_percent=True,
+    use_proportion=True,
     bar_width_fraction=0.36,
 ):
+    """
+    Side-by-side comparison of black/white dominance histograms.
+
+    Visual convention:
+        experiment = grayscale family
+        model      = blue family
+
+    Within each source:
+        black-dominant bins = darker shade
+        white-dominant bins = lighter shade
+
+    No hatching.
+    Experiment is always plotted first, then model.
+    """
     if len(hist_datasets) == 0:
         raise ValueError("No histogram datasets provided.")
 
     _safe_mkdir_for_file(save_path)
 
-    ref_edges = np.asarray(hist_datasets[0]["bin_edges"], dtype=float)
+    # ------------------------------------------------------------------
+    # Enforce consistent source order:
+    # experiment first, model second.
+    # ------------------------------------------------------------------
+    source_priority = {"experiment": 0, "model": 1}
+    ordered_datasets = sorted(
+        hist_datasets,
+        key=lambda ds: source_priority.get(ds.get("source"), 99),
+    )
 
-    for ds in hist_datasets:
+    ref_edges = np.asarray(ordered_datasets[0]["bin_edges"], dtype=float)
+
+    for ds in ordered_datasets:
         edges = np.asarray(ds["bin_edges"], dtype=float)
         if not np.allclose(edges, ref_edges):
             raise ValueError("All histogram datasets must use identical bin_edges.")
@@ -1064,29 +1095,40 @@ def plot_black_white_histogram_comparison(
     is_black = centers < 0
     is_white = centers >= 0
 
-    n_ds = len(hist_datasets)
+    n_ds = len(ordered_datasets)
     offsets = np.array([0.0]) if n_ds == 1 else np.linspace(-0.5, 0.5, n_ds)
 
     fig, ax = plt.subplots(figsize=(8.6, 5.3))
 
     max_y = 0.0
 
-    for i, ds in enumerate(hist_datasets):
-        y = np.asarray(ds["percent" if use_percent else "counts"], dtype=float)
+    for i, ds in enumerate(ordered_datasets):
+        if use_proportion:
+            if "proportion" in ds:
+                y = np.asarray(ds["proportion"], dtype=float)
+            elif "percent" in ds:
+                y = np.asarray(ds["percent"], dtype=float) / 100.0
+            else:
+                counts = np.asarray(ds["counts"], dtype=float)
+                total = np.sum(counts)
+                y = counts / total if total > 0 else counts
+        else:
+            y = np.asarray(ds["counts"], dtype=float)        
         max_y = max(max_y, float(np.max(y)) if len(y) else 0.0)
 
         x = centers + offsets[i] * widths * bar_width_fraction
         bar_width = widths * bar_width_fraction
-        hatch = ds.get("hatch", None)
+
+        source = ds.get("source")
+        palette = _source_preference_palette(source)
 
         ax.bar(
             x[is_black],
             y[is_black],
             width=bar_width[is_black],
-            color=BLACK_FILL,
-            edgecolor="black",
+            color=palette["black"],
+            edgecolor=BLACK,
             linewidth=0.9,
-            hatch=hatch,
             align="center",
         )
 
@@ -1094,40 +1136,59 @@ def plot_black_white_histogram_comparison(
             x[is_white],
             y[is_white],
             width=bar_width[is_white],
-            color=WHITE_FILL,
-            edgecolor="black",
+            color=palette["white"],
+            edgecolor=BLACK,
             linewidth=0.9,
-            hatch=hatch,
             align="center",
         )
 
-    ax.axvline(0, color="black", linewidth=1.1)
+    ax.axvline(0, color=BLACK, linewidth=1.1)
 
     ax.set_xlim(ref_edges[0], ref_edges[-1])
-    ax.set_ylim(0, max_y * 1.18 if max_y > 0 else 1.0)
+
+    if use_proportion:
+        ax.set_ylim(0, 1.0)
+        ax.set_yticks([0.0, 0.2, 0.4, 0.6, 0.8, 1.0])
+        ax.set_yticklabels(["0", "0.2", "0.4", "0.6", "0.8", "1.0"])
+    else:
+        ax.set_ylim(0, max_y * 1.18 if max_y > 0 else 1.0)
 
     ax.set_xlabel(r"log$_{10}$(E white / E black)", fontsize=13)
-    ax.set_ylabel("% of neurons" if use_percent else "Number of neurons", fontsize=13)
+    ax.set_ylabel(
+        "Proportion of neurons" if use_proportion else "Number of neurons",
+        fontsize=13,
+    )    
     ax.tick_params(axis="both", labelsize=11)
 
-    # four explicit legend categories
-    dataset_by_source = {ds["source"]: ds for ds in hist_datasets}
 
-    legend_handles = []
+    # ------------------------------------------------------------------
+    # Unified legend: experiment first, then model
+    # ------------------------------------------------------------------
+    model_palette = _source_preference_palette("model")
+    experiment_palette = _source_preference_palette("experiment")
 
-    if "experiment" in dataset_by_source:
-        exp_hatch = dataset_by_source["experiment"].get("hatch", "///")
-        legend_handles.extend([
-            Patch(facecolor=BLACK_FILL, edgecolor="black", hatch=exp_hatch, label="Experiment black"),
-            Patch(facecolor=WHITE_FILL, edgecolor="black", hatch=exp_hatch, label="Experiment white"),
-        ])
-
-    if "model" in dataset_by_source:
-        model_hatch = dataset_by_source["model"].get("hatch", None)
-        legend_handles.extend([
-            Patch(facecolor=BLACK_FILL, edgecolor="black", hatch=model_hatch, label="Model black"),
-            Patch(facecolor=WHITE_FILL, edgecolor="black", hatch=model_hatch, label="Model white"),
-        ])
+    legend_handles = [
+        Patch(
+            facecolor=experiment_palette["black"],
+            edgecolor=BLACK,
+            label="Exp. black",
+        ),
+        Patch(
+            facecolor=model_palette["black"],
+            edgecolor=BLACK,
+            label="Model black",
+        ),
+        Patch(
+            facecolor=experiment_palette["white"],
+            edgecolor=BLACK,
+            label="Exp. white",
+        ),
+        Patch(
+            facecolor=model_palette["white"],
+            edgecolor=BLACK,
+            label="Model white",
+        ),
+    ]
 
     ax.legend(
         handles=legend_handles,
@@ -1135,28 +1196,11 @@ def plot_black_white_histogram_comparison(
         frameon=False,
         fontsize=10,
         ncol=2,
+        columnspacing=0.9,
+        handletextpad=0.4,
+        borderpad=0.2,
+        labelspacing=0.3,
     )
-
-    # summary_lines = []
-    # for ds in hist_datasets:
-    #     black_frac = _black_fraction_from_counts(ds["counts"], ds["bin_edges"])
-    #     summary_lines.append(f"{ds['label']}: black={black_frac * 100:.1f}%")
-
-    # ax.text(
-    #     0.5,
-    #     0.98,
-    #     "\n".join(summary_lines),
-    #     transform=ax.transAxes,
-    #     ha="center",
-    #     va="top",
-    #     fontsize=10,
-    #     bbox=dict(
-    #         boxstyle="round",
-    #         facecolor="white",
-    #         edgecolor="0.6",
-    #         alpha=0.95,
-    #     ),
-    # )
 
     plt.savefig(save_path, dpi=220, bbox_inches="tight")
     plt.close(fig)
@@ -1637,14 +1681,19 @@ def plot_black_white_scatter_comparison_overlay(
     Overlay model and experiment scatter with shared marginal histograms.
 
     Scatter:
-        model      = filled grey
-        experiment = open white
+        source family + binary black/white preference tone
 
     Marginals:
-        white response = light grey
-        black response = dark grey
-        model          = solid
-        experiment     = hatched
+        top   = projection of E white values only
+        right = projection of E black values only
+
+    Marginals are NOT split by preference class.
+    Their colors only indicate which axis is being projected:
+        top   = lighter / white-like source shade
+        right = darker / black-like source shade
+
+    For the side-by-side marginal bars, experiment is always plotted first,
+    then model, regardless of input order.
     """
 
     _safe_mkdir_for_file(save_path)
@@ -1660,8 +1709,23 @@ def plot_black_white_scatter_comparison_overlay(
     centers = 0.5 * (hist_bins[:-1] + hist_bins[1:])
     widths = np.diff(hist_bins)
 
-    n_ds = len(scatter_datasets)
-    offsets = np.array([0.0]) if n_ds == 1 else np.linspace(-0.5, 0.5, n_ds)
+    # ------------------------------------------------------------------
+    # Enforce dataset order for marginal bars:
+    # experiment first, model second.
+    # Keep any unknown sources at the end.
+    # ------------------------------------------------------------------
+    source_priority = {"experiment": 0, "model": 1}
+    ordered_datasets = sorted(
+        scatter_datasets,
+        key=lambda ds: source_priority.get(ds.get("source"), 99),
+    )
+
+    n_ds = len(ordered_datasets)
+
+    if n_ds == 1:
+        offsets = np.array([0.0])
+    else:
+        offsets = np.linspace(-0.5, 0.5, n_ds)
 
     fig = plt.figure(figsize=(7.2, 7.0))
 
@@ -1685,7 +1749,7 @@ def plot_black_white_scatter_comparison_overlay(
     max_hist_y = 0.0
     max_hist_x = 0.0
 
-    for i, ds in enumerate(scatter_datasets):
+    for i, ds in enumerate(ordered_datasets):
         prepared = _prepare_black_white_scatter_display(
             ds,
             top_code=top_code,
@@ -1693,36 +1757,85 @@ def plot_black_white_scatter_comparison_overlay(
             scale_model=True,
         )
 
+        white_raw = prepared["white_raw"]
+        black_raw = prepared["black_raw"]
+
         white = prepared["white_display"]
         black = prepared["black_display"]
 
-        if ds.get("source") == "experiment":
-            scatter_face = "white"
-            scatter_alpha = 0.95
-            hatch = "///"
+        source = ds.get("source")
+
+        # Scatter palette:
+        # source family + black/white preference tone.
+        scatter_palette = _source_preference_palette(source)
+
+        masks = _black_white_preference_masks(
+            white_raw,
+            black_raw,
+        )
+
+        point_colors = _colors_from_preference_masks(
+            masks,
+            scatter_palette,
+        )
+        point_colors = np.asarray(point_colors, dtype=object)
+
+        # Marginal palette:
+        # same source family, but axis-specific shade.
+        # Top white projection gets white-ish shade.
+        # Right black projection gets black-ish shade.
+        projection_palette = _source_projection_palette(source)
+
+        if source == "experiment":
+            scatter_alpha = 0.92
+            hist_alpha = 0.80
+            zorder = 3
         else:
-            scatter_face = "0.55"
-            scatter_alpha = 0.65
-            hatch = None
+            scatter_alpha = 0.75
+            hist_alpha = 0.88
+            zorder = 2
+
+        # --------------------------------------------------------------
+        # Scatter
+        # --------------------------------------------------------------
+        if source == "experiment":
+            point_edges = np.full(len(white), WHITE, dtype=object)
+            point_linewidths = np.full(len(white), 0.70, dtype=float)
+
+            # Experiment white-preferring gets black edge.
+            point_edges[masks["white"]] = BLACK
+            point_linewidths[masks["white"]] = 0.75
+
+        else:
+            # Model: black edge for all points.
+            point_edges = np.full(len(white), BLACK, dtype=object)
+            point_linewidths = np.full(len(white), 0.55, dtype=float)
 
         ax.scatter(
             white,
             black,
             s=marker_size,
-            facecolor=scatter_face,
-            edgecolor="black",
-            linewidth=0.8,
+            facecolors=point_colors,
+            edgecolors=point_edges,
+            linewidths=point_linewidths,
             alpha=scatter_alpha,
             label=f"{ds['label']} (n={ds['n']})",
+            zorder=zorder,
         )
 
-        weights = np.ones(len(white)) * 100.0 / len(white)
+        weights = np.ones(len(white)) / len(white)
 
+        # --------------------------------------------------------------
+        # Plain axis projections
+        # --------------------------------------------------------------
+        # Top marginal: histogram of E white values only.
         white_counts, _ = np.histogram(
             white,
             bins=hist_bins,
             weights=weights,
         )
+
+        # Right marginal: histogram of E black values only.
         black_counts, _ = np.histogram(
             black,
             bins=hist_bins,
@@ -1736,36 +1849,38 @@ def plot_black_white_scatter_comparison_overlay(
         y = centers + offsets[i] * widths * bar_width_fraction
         bar_width = widths * bar_width_fraction
 
-        # Top marginal: white response distribution.
         ax_histx.bar(
             x,
             white_counts,
             width=bar_width,
-            color=WHITE_FILL,
-            edgecolor="black",
-            linewidth=0.9,
-            hatch=hatch,
+            color=projection_palette["white_hist"],
+            edgecolor=projection_palette["edge"],
+            linewidth=0.6,
             align="center",
+            alpha=hist_alpha,
         )
 
-        # Right marginal: black response distribution.
         ax_histy.barh(
             y,
             black_counts,
             height=bar_width,
-            color=BLACK_FILL,
-            edgecolor="black",
-            linewidth=0.9,
-            hatch=hatch,
+            color=projection_palette["black_hist"],
+            edgecolor=projection_palette["edge"],
+            linewidth=0.6,
             align="center",
+            alpha=hist_alpha,
         )
 
+    # ------------------------------------------------------------------
+    # Main scatter formatting
+    # ------------------------------------------------------------------
     ax.plot(
         [0, top_code],
         [0, top_code],
         linestyle="--",
-        color="0.35",
+        color=MID,
         linewidth=1.0,
+        zorder=1,
     )
 
     ax.set_xlim(0, overflow_value + 5)
@@ -1781,112 +1896,193 @@ def plot_black_white_scatter_comparison_overlay(
     ax.set_ylabel("E black", fontsize=12)
     ax.tick_params(axis="both", labelsize=10)
 
-    ax_histx.set_ylim(0, max_hist_y * 1.18 if max_hist_y > 0 else 1.0)
-    ax_histy.set_xlim(0, max_hist_x * 1.18 if max_hist_x > 0 else 1.0)
+    # ------------------------------------------------------------------
+    # Marginal formatting
+    # ------------------------------------------------------------------
+    ax_histx.set_ylim(0, 1.0)
+    ax_histy.set_xlim(0, 1.0)
+
+    ax_histx.set_yticks([0.0, 0.5, 1.0])
+    ax_histy.set_xticks([0.0, 0.5, 1.0])
+
+    ax_histx.set_yticklabels(["0", "0.5", "1"])
+    ax_histy.set_xticklabels(["0", "0.5", "1"])
 
     ax_histx.tick_params(axis="x", labelbottom=False)
     ax_histx.tick_params(axis="y", labelsize=8)
-    ax_histx.set_ylabel("% of neurons", fontsize=9)
+    ax_histx.set_ylabel("Prop.", fontsize=9)
+    ax_histx.set_title("E white", fontsize=9, pad=2)
 
     ax_histy.tick_params(axis="y", labelleft=False)
     ax_histy.tick_params(axis="x", labelsize=8)
-    ax_histy.set_xlabel("% of neurons", fontsize=9)
+    ax_histy.set_xlabel("Prop.", fontsize=9)
+    ax_histy.set_title("E black", fontsize=9, pad=2)
 
     for a in (ax_histx, ax_histy):
         a.spines["top"].set_visible(False)
         a.spines["right"].set_visible(False)
 
-    # Scatter legend: dataset identity only.
-    scatter_handles = [
+    # ------------------------------------------------------------------
+    # One unified scatter legend, upper right.
+    # Experiment first, then model.
+    # ------------------------------------------------------------------
+    model_palette = _source_preference_palette("model")
+    experiment_palette = _source_preference_palette("experiment")
+
+    legend_handles = [
         Line2D(
-            [0],
-            [0],
+            [0], [0],
             marker="o",
             linestyle="none",
-            markerfacecolor="0.55",
-            markeredgecolor="black",
-            markeredgewidth=0.8,
-            markersize=6,
-            label="Model",
+            markerfacecolor=experiment_palette["black"],
+            markeredgecolor=WHITE,
+            markeredgewidth=0.7,
+            markersize=5.5,
+            label="Exp. black",
         ),
         Line2D(
-            [0],
-            [0],
+            [0], [0],
             marker="o",
             linestyle="none",
-            markerfacecolor="white",
-            markeredgecolor="black",
-            markeredgewidth=0.9,
-            markersize=6,
-            label="Experiment",
+            markerfacecolor=experiment_palette["white"],
+            markeredgecolor=BLACK,
+            markeredgewidth=0.7,
+            markersize=5.5,
+            label="Exp. white",
+        ),
+        Line2D(
+            [0], [0],
+            marker="o",
+            linestyle="none",
+            markerfacecolor=model_palette["black"],
+            markeredgecolor=BLACK,
+            markeredgewidth=0.55,
+            markersize=5.5,
+            label="Model black",
+        ),
+        Line2D(
+            [0], [0],
+            marker="o",
+            linestyle="none",
+            markerfacecolor=model_palette["white"],
+            markeredgecolor=BLACK,
+            markeredgewidth=0.55,
+            markersize=5.5,
+            label="Model white",
         ),
     ]
 
     ax.legend(
-        handles=scatter_handles,
+        handles=legend_handles,
         frameon=False,
-        fontsize=8,
-        loc="lower right",
-        handletextpad=0.4,
-        borderpad=0.2,
-    )
-
-
-    # Top marginal legend: white-response marginal only.
-    white_marginal_handles = [
-        Patch(
-            facecolor=WHITE_FILL,
-            edgecolor="black",
-            label="Model",
-        ),
-        Patch(
-            facecolor=WHITE_FILL,
-            edgecolor="black",
-            hatch="///",
-            label="Experiment",
-        ),
-    ]
-
-    ax_histx.legend(
-        handles=white_marginal_handles,
-        title="White E distribution",
-        frameon=False,
-        fontsize=7.5,
-        title_fontsize=8,
+        fontsize=7.4,
         loc="upper right",
-        handlelength=1.6,
-        handletextpad=0.4,
+        ncol=2,
+        columnspacing=0.8,
+        handletextpad=0.35,
         borderpad=0.2,
+        labelspacing=0.25,
     )
 
-
-    # Right marginal legend: black-response marginal only.
-    black_marginal_handles = [
-        Patch(
-            facecolor=BLACK_FILL,
-            edgecolor="black",
-            label="Model",
-        ),
-        Patch(
-            facecolor=BLACK_FILL,
-            edgecolor="black",
-            hatch="///",
-            label="Experiment",
-        ),
-    ]
-
-    ax_histy.legend(
-        handles=black_marginal_handles,
-        title="Black E distribution",
-        frameon=False,
-        fontsize=7.5,
-        title_fontsize=8,
-        loc="upper right",
-        handlelength=1.4,
-        handletextpad=0.4,
-        borderpad=0.2,
-    )
     plt.savefig(save_path, dpi=220, bbox_inches="tight")
     plt.close(fig)
 
     print(f"Saved scatter comparison overlay: {save_path}")
+
+# helper functions for scatter plotters color palettes and preference masks 
+def _blend_color(color, target, amount):
+    """
+    Blend color toward target.
+
+    amount = 0 -> color
+    amount = 1 -> target
+
+    Returns hex string, not RGB tuple/array.
+    This avoids NumPy boolean-assignment nonsense.
+    """
+    base = np.asarray(colors.to_rgb(color), dtype=float)
+    target = np.asarray(colors.to_rgb(target), dtype=float)
+    out = base * (1.0 - amount) + target * amount
+    out = np.clip(out, 0, 1)
+
+    return "#{:02X}{:02X}{:02X}".format(
+        int(round(out[0] * 255)),
+        int(round(out[1] * 255)),
+        int(round(out[2] * 255)),
+    )
+
+
+def _source_preference_palette(source):
+    """
+    Scatter / histogram preference palette.
+
+    black = base source color
+    white = lightened source color
+    """
+    if source == "model":
+        return {
+            "black": MODEL_COLOR,
+            "white": _blend_color(MODEL_COLOR, WHITE, 0.38),
+            "edge": BLACK,
+        }
+
+    return {
+        "black": BLACK,
+        "white": LIGHT,
+        "edge": BLACK,
+    }
+
+
+def _black_white_preference_masks(white_raw, black_raw):
+    """
+    Binary article-style preference.
+
+    black:
+        E_black > E_white
+
+    white:
+        E_white >= E_black
+    """
+    white_raw = np.asarray(white_raw, dtype=float)
+    black_raw = np.asarray(black_raw, dtype=float)
+
+    black_mask = black_raw > white_raw
+    white_mask = ~black_mask
+
+    return {
+        "black": black_mask,
+        "white": white_mask,
+    }
+
+
+def _colors_from_preference_masks(masks, palette):
+    point_colors = np.empty(len(masks["black"]), dtype=object)
+
+    point_colors[masks["black"]] = palette["black"]
+    point_colors[masks["white"]] = palette["white"]
+
+    return point_colors
+
+
+def _source_projection_palette(source):
+    """
+    Marginal projection colors.
+
+    Top histogram:
+        E white projection -> lightened source color
+
+    Right histogram:
+        E black projection -> base source color
+    """
+    if source == "model":
+        return {
+            "white_hist": _blend_color(MODEL_COLOR, WHITE, 0.38),
+            "black_hist": MODEL_COLOR,
+            "edge": BLACK,
+        }
+
+    return {
+        "white_hist": LIGHT,
+        "black_hist": BLACK,
+        "edge": BLACK,
+    }

@@ -181,6 +181,7 @@ def contrast_response_experiment(
     neg_val = True,
     phases=np.linspace(0, 2*np.pi, 37)[:-1],
     phase_stat="F0",
+    contrast=None,
     ):
     ''' For the selected neurons this function :
 

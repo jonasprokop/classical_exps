@@ -29,6 +29,7 @@ import os
 import openpyxl
 from matplotlib.ticker import ScalarFormatter
 from matplotlib.ticker import MultipleLocator
+from matplotlib.lines import Line2D
 
 
 
@@ -62,6 +63,11 @@ GSF_COLOR = "0.45"
 SURR_COLOR = BLACK
 AMRF_COLOR = "0.70"
 
+ARTICLE_COLOR = "black"
+MODEL_COLOR = "#2F5D8C"
+
+
+
 def size_tuning_results_1(
     *,
     loaded,
@@ -75,7 +81,10 @@ def size_tuning_results_1(
     max_plot_neurons=None,
     plot_only_filtered=False,
     show_suppression=True,
-    experimental_data_scraped=None
+    experimental_data_scraped=None,
+    example_overlay_pairs=[("neuron_A", 0)],
+    fit_err_thresh=None,
+    supp_thresh=None,
 ):
     neuron_ids = np.asarray(neuron_ids, dtype=int)
     filtered_neuron_ids = np.asarray(filtered_neuron_ids, dtype=int)
@@ -339,9 +348,11 @@ def size_tuning_results_1(
             round_decimals=2,
         )
 
+    
     # ---------------------------------------
     # Experimental scraped data branch
     # ---------------------------------------
+    scraped_curve_payloads = {}
     if experimental_data_scraped is not None:
         scraped_plot_dir = os.path.join(plot_dir, "experimental_scraped")
         os.makedirs(scraped_plot_dir, exist_ok=True)
@@ -474,6 +485,14 @@ def size_tuning_results_1(
                     style="article_raw",
                 )
 
+                scraped_curve_payloads[neuron_scraped] = {
+                    "label": f"Experimental {neuron_scraped}",
+                    "radii": np.asarray(radii_for_scraped, dtype=float),
+                    "circular": np.asarray(circ_y, dtype=float),
+                    "annular": None if ann_curve is None else np.asarray(ann_curve, dtype=float),
+                    "markers": scraped_display_markers,
+                }
+
                 if neuron_scraped in grp_scraped:
                     del grp_scraped[neuron_scraped]
 
@@ -521,17 +540,166 @@ def size_tuning_results_1(
         print("--------------------------------------")
         print()
 
-    _plot_scraped_population_summaries(
-        experimental_data_scraped,
-        save_root="/project/results/nature_and_interactions/size_tuning/",
-        label="experimental_scraped",
-        shared_support=shared_model_support,
-    )
+        st = loaded["size_tuning_curves_active"]
+        radii_model = np.asarray(st["radii"], dtype=float)
+        model_curves_by_id = st["by_id"]
+
+        for scraped_id, model_nid in example_overlay_pairs:
+            if scraped_id not in scraped_curve_payloads:
+                print(f"Skipping overlay: scraped neuron {scraped_id!r} not available.")
+                continue
+
+            if model_nid not in model_curves_by_id:
+                print(f"Skipping overlay: model neuron {model_nid} not available.")
+                continue
+
+            model_curve = model_curves_by_id[model_nid]
+
+            model_payload = {
+                "label": f"Model neuron {model_nid}",
+                "radii": radii_model,
+                "circular": np.asarray(model_curve["circular"], dtype=float),
+                "annular": (
+                    None
+                    if "annular" not in model_curve
+                    else np.asarray(model_curve["annular"], dtype=float)
+                ),
+                "markers": None,  # add later if wanted
+            }
+
+        st = loaded["size_tuning_curves_active"]
+        radii_model = np.asarray(st["radii"], dtype=float)
+        model_curves_by_id = st["by_id"]
+
+        def _validate_overlay_payload(payload, *, name, require_suppression=True):
+            if payload is None:
+                raise ValueError(f"{name} overlay payload is None.")
+
+            for key in ("radii", "circular"):
+                if key not in payload:
+                    raise KeyError(f"{name} overlay payload missing {key!r}.")
+
+            radii_arr = np.asarray(payload["radii"], dtype=float)
+            circ_arr = np.asarray(payload["circular"], dtype=float)
+
+            if radii_arr.size < 2 or circ_arr.size < 2:
+                raise ValueError(f"{name} overlay payload has too few points.")
+
+            if payload.get("markers", None) is None:
+                raise ValueError(f"{name} overlay payload has markers=None.")
+
+            markers = payload["markers"]
+
+            needed = ["GSF", "surround_extent"]
+            if require_suppression:
+                needed += ["Ropt", "Rsupp"]
+
+            missing = []
+            for k in needed:
+                try:
+                    v = float(markers.get(k, np.nan))
+                except Exception:
+                    v = np.nan
+
+                if not np.isfinite(v):
+                    missing.append(k)
+
+            if missing:
+                raise ValueError(
+                    f"{name} overlay markers missing/non-finite values: {missing}. "
+                    f"markers={markers}"
+                )
+
+        for scraped_id, model_nid in example_overlay_pairs:
+            if scraped_id not in scraped_curve_payloads:
+                print(f"Skipping overlay: scraped neuron {scraped_id!r} not available.")
+                continue
+
+            model_nid = int(model_nid)
+
+            if model_nid not in model_curves_by_id:
+                print(f"Skipping overlay: model neuron {model_nid} not available.")
+                continue
+
+            model_curve = model_curves_by_id[model_nid]
+
+            model_circ = np.asarray(model_curve["circular"], dtype=float)
+
+            model_ann = (
+                None
+                if "annular" not in model_curve
+                else np.asarray(model_curve["annular"], dtype=float)
+            )
+
+            # Build model markers NOW, before the plot call.
+            d_model_overlay = _extract_size_tuning_markers_core(
+                radii=radii_model,
+                circular_curve=model_circ,
+                annular_curve=model_ann,
+                min_valid_radius=1e-9,
+                require_article_exclusion=False,
+            )
+
+            model_overlay_markers, _ = build_analysis_markers(
+                d_model_overlay,
+                has_annulus=(model_ann is not None),
+            )
+
+            model_payload = {
+                "label": f"Model neuron {model_nid}",
+                "radii": radii_model,
+                "circular": model_circ,
+                "annular": model_ann,
+                "markers": model_overlay_markers,
+            }
+
+            # Use analysis markers for overlay, not display markers,
+            # otherwise article-style cases can hide valid marker data.
+            experimental_payload = dict(scraped_curve_payloads[scraped_id])
+
+            _validate_overlay_payload(
+                experimental_payload,
+                name=f"Experiment {scraped_id}",
+                require_suppression=True,
+            )
+
+            _validate_overlay_payload(
+                model_payload,
+                name=f"Model neuron {model_nid}",
+                require_suppression=True,
+            )
+
+            print("--------------------------------------")
+            print("Overlay payload check")
+            print(f"    > Experiment: {scraped_id}")
+            print(f"        markers: {experimental_payload['markers']}")
+            print(f"    > Model: {model_nid}")
+            print(f"        markers: {model_payload['markers']}")
+            print("--------------------------------------")
+
+            plot_size_tuning_curve_overlay_comparison(
+                experimental_payload,
+                model_payload,
+                save_path=os.path.join(
+                    plot_dir,
+                    f"overlay_experimental_{scraped_id}_model_{model_nid}.svg",
+                ),
+                use_diameter=True,
+                response_mode="minmax",
+                show_markers=True,
+                show_suppression=True,
+            )
+        _plot_scraped_population_summaries(
+            experimental_data_scraped,
+            save_root="/project/results/nature_and_interactions/size_tuning/",
+            label="experimental_scraped",
+            shared_support=shared_model_support,
+        )
     
-    # ---------------------------------------
-    # Shared histogram axes (model vs scraped)
-    # ---------------------------------------
-    if experimental_data_scraped is not None:
+        # ---------------------------------------
+        # Shared histogram axes (model vs scraped)
+        # ---------------------------------------
+
         diam_scatter = experimental_data_scraped.get("diametr_scatter", {})
         gsf_d_scraped = np.asarray(diam_scatter.get("gsf", []), dtype=float)
         surr_d_scraped = np.asarray(diam_scatter.get("surround_diametr", []), dtype=float)
@@ -584,8 +752,6 @@ def size_tuning_results_1(
                 shared_bins=shared_bins,
                 shared_ymax=shared_ymax,
             )
-
-
 
     # ---------------------------------------
     # Summary scatter(s)
@@ -685,9 +851,9 @@ def size_tuning_results_1(
             title="",
             x_label="GSF diameter (deg)",
             y_label="Surround diameter (deg)",
-            scatter_save_path=f"/project/results/nature_and_interactions/size_tuning/gsf_vs_surround_{label}.png",
-            si_save_path=f"/project/results/nature_and_interactions/size_tuning/si_distribution_{label}.png",
-            ratio_save_path=f"/project/results/nature_and_interactions/size_tuning/ratio_distribution_{label}.png",
+            scatter_save_path=f"/project/results/nature_and_interactions/size_tuning/gsf_vs_surround_{label}.svg",
+            si_save_path=f"/project/results/nature_and_interactions/size_tuning/si_distribution_{label}.svg",
+            ratio_save_path=f"/project/results/nature_and_interactions/size_tuning/ratio_distribution_{label}.svg",
         )
         print("--------------------------------------\n")
 
@@ -728,6 +894,58 @@ def size_tuning_results_1(
                 n_bins_y=5,
             )
 
+    if experimental_data_scraped is not None:
+        si_hist = experimental_data_scraped.get("SI_histogram", {})
+        bins_raw = si_hist.get("bins", [])
+        article_props = np.asarray(si_hist.get("SI_proportions", []), dtype=float)
+
+        if len(bins_raw) > 0 and article_props.size > 0 and len(all_raw_si_hist) > 0:
+            article_edges = np.array(
+                [bins_raw[0][0]] + [b[1] for b in bins_raw],
+                dtype=float,
+            )
+
+        plot_si_histogram_comparison(
+            article_bin_edges=article_edges,
+            article_proportions=article_props,
+            model_values=np.asarray(all_raw_si_hist, dtype=float),
+            save_path="/project/results/nature_and_interactions/size_tuning/si_distribution_comparison.svg",
+            article_label="Experiment",
+            model_label="Model",
+        )
+
+        si_hist = experimental_data_scraped.get("SI_histogram", {})
+        bins_raw = si_hist.get("bins", [])
+        article_props = np.asarray(si_hist.get("SI_proportions", []), dtype=float)
+
+        article_si_edges = None
+        if len(bins_raw) > 0 and article_props.size > 0:
+            article_si_edges = np.array(
+                [bins_raw[0][0]] + [b[1] for b in bins_raw],
+                dtype=float,
+            )
+
+        plot_shared_metric_histogram_comparison(
+            model_gsf_d=gsf_d_model,
+            model_surr_d=surr_d_model,
+            scraped_gsf_d=gsf_d_scraped,
+            scraped_surr_d=surr_d_scraped,
+            shared_bins=shared_bins,
+            shared_ymax=shared_ymax, 
+            save_path="/project/results/nature_and_interactions/size_tuning/metrics_hist_shared_comparison.svg",
+            model_si=np.asarray(all_raw_si_hist, dtype=float),
+            scraped_si_bin_edges=article_si_edges,
+            scraped_si_proportions=article_props,
+            include_ratio=True,
+            include_si=True,
+            article_style=True,
+            show_titles=False,
+        )
+
+        print("--------------------------------------")
+        print("SI histogram comparison and metric histogram comparison")
+
+
 
     # ---------------------------------------
     # Diagnostics: neurons lacking parameters
@@ -767,6 +985,7 @@ def size_tuning_results_1(
     return loaded
 
 
+    
 def size_tuning_results_2(
     neuron_ids,
     filtered_neuron_ids=None,   
@@ -2080,8 +2299,6 @@ def count_on_support_grid(x, y, x_support, y_support, normalize=False):
         H /= H.sum()
 
     return H
-
-
 def plot_model_vs_scraped_binned_1d(
     model_gsf_d,
     model_surr_d,
@@ -2093,6 +2310,7 @@ def plot_model_vs_scraped_binned_1d(
     article_style=True,
     show_titles=False,
 ):
+    import os
     import numpy as np
     import matplotlib.pyplot as plt
 
@@ -2147,18 +2365,18 @@ def plot_model_vs_scraped_binned_1d(
     def _split_bin_geometry_log_half(bins, inner_pad_frac=0.04):
         """
         Split each parent bin into two equal halves IN LOG SPACE.
-        Left half -> model
-        Right half -> experiment
+        Left half  -> experiment
+        Right half -> model
 
         inner_pad_frac adds a tiny pad inside each half so bars do not
         touch each other or the bin boundaries.
         """
         bins = np.asarray(bins, dtype=float)
 
-        model_left = []
-        model_width = []
         exp_left = []
         exp_width = []
+        model_left = []
+        model_width = []
 
         for left, right in zip(bins[:-1], bins[1:]):
             ll = np.log(left)
@@ -2168,28 +2386,29 @@ def plot_model_vs_scraped_binned_1d(
             left_span = mid - ll
             right_span = rr - mid
 
-            # pad each half slightly
-            m_ll = ll + inner_pad_frac * left_span
-            m_rr = mid - inner_pad_frac * left_span
+            # left half = experiment
+            e_ll = ll + inner_pad_frac * left_span
+            e_rr = mid - inner_pad_frac * left_span
 
-            e_ll = mid + inner_pad_frac * right_span
-            e_rr = rr - inner_pad_frac * right_span
+            # right half = model
+            m_ll = mid + inner_pad_frac * right_span
+            m_rr = rr - inner_pad_frac * right_span
 
-            ml = np.exp(m_ll)
-            mr = np.exp(m_rr)
             el = np.exp(e_ll)
             er = np.exp(e_rr)
+            ml = np.exp(m_ll)
+            mr = np.exp(m_rr)
 
-            model_left.append(ml)
-            model_width.append(mr - ml)
             exp_left.append(el)
             exp_width.append(er - el)
+            model_left.append(ml)
+            model_width.append(mr - ml)
 
         return (
-            np.asarray(model_left, dtype=float),
-            np.asarray(model_width, dtype=float),
             np.asarray(exp_left, dtype=float),
             np.asarray(exp_width, dtype=float),
+            np.asarray(model_left, dtype=float),
+            np.asarray(model_width, dtype=float),
         )
 
     # -------------------------
@@ -2206,44 +2425,51 @@ def plot_model_vs_scraped_binned_1d(
     TICKLEN = 6
     TICKWIDTH = 1.4
 
+    EXP_COLOR = ARTICLE_COLOR
+    MOD_COLOR = MODEL_COLOR
+
     def _draw_panel(ax, model_vals, scraped_vals, bins, xlabel, title=""):
         model_hist = _hist_prop(model_vals, bins)
         scraped_hist = _hist_prop(scraped_vals, bins)
 
-        model_left, model_width, exp_left, exp_width = _split_bin_geometry_log_half(
+        exp_left, exp_width, model_left, model_width = _split_bin_geometry_log_half(
             bins,
             inner_pad_frac=0.04,
         )
 
-        ax.bar(
-            model_left,
-            model_hist,
-            width=model_width,
-            align="edge",
-            facecolor="0.88",
-            edgecolor=BLACK,
-            linewidth=BAR_LW,
-            label="Model",
-            zorder=3,
-        )
-
+        # Experiment first, black, left half
         ax.bar(
             exp_left,
             scraped_hist,
             width=exp_width,
             align="edge",
-            facecolor="0.55",
-            edgecolor=BLACK,
+            facecolor=EXP_COLOR,
+            edgecolor=EXP_COLOR,
             linewidth=BAR_LW,
+            alpha=0.90,
             label="Experiment",
             zorder=4,
+        )
+
+        # Model second, blue, right half
+        ax.bar(
+            model_left,
+            model_hist,
+            width=model_width,
+            align="edge",
+            facecolor=MOD_COLOR,
+            edgecolor=MOD_COLOR,
+            linewidth=BAR_LW,
+            alpha=0.85,
+            label="Model",
+            zorder=3,
         )
 
         ax.set_xscale("log")
         xlo, xhi = _padded_log_xlim(bins, pad_frac=0.03)
         ax.set_xlim(xlo, xhi)
 
-        # ticks stay on original bin EDGES, as in your current design
+        # keep ticks on original bin edges
         ax.set_xticks(bins)
         ax.set_xticklabels([_fmt_edge_tick(b) for b in bins], rotation=45, ha="right")
         ax.minorticks_off()
@@ -2270,8 +2496,8 @@ def plot_model_vs_scraped_binned_1d(
             )
 
         return max(
-            np.max(model_hist) if model_hist.size else 0.0,
             np.max(scraped_hist) if scraped_hist.size else 0.0,
+            np.max(model_hist) if model_hist.size else 0.0,
         )
 
     # -------------------------
@@ -2366,9 +2592,9 @@ def plot_model_vs_scraped_binned_1d(
         borderpad=0.2,
     )
 
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
     fig.savefig(save_path, dpi=300, bbox_inches="tight")
     plt.close(fig)
-
 
 def _make_shared_log_bins(model_vals, scraped_vals, n_bins=5):
     vals = np.concatenate([model_vals, scraped_vals])
@@ -2457,3 +2683,1200 @@ def build_shared_metric_hist_settings(
     shared_ymax = max(1.08 * max(ymax_candidates), 0.05)
 
     return shared_bins, shared_ymax
+
+
+def plot_size_tuning_curve_overlay_comparison(
+    experimental_curve,
+    model_curve,
+    *,
+    save_path,
+    use_diameter=True,
+    response_mode="minmax",  # "raw" | "peak_normalized" | "minmax"
+    show_annular=True,
+    show_markers=True,
+    show_suppression=True,
+    show_titles=False,
+    article_style=True,
+):
+    """
+    Overlay one experimental scraped size-tuning curve and one selected model curve.
+
+    Visual grammar:
+        source:
+            Experiment = ARTICLE_COLOR
+            Model      = MODEL_COLOR
+
+        condition:
+            Circular = solid line, filled marker
+            Annular  = dashed line, open marker
+
+        markers:
+            GSF             = dotted vertical line
+            Surround extent = dash-dot vertical line
+
+    Normalisation:
+        raw:
+            no response scaling.
+
+        peak_normalized:
+            circular and annular responses divided by circular peak.
+            Ropt/Rsupp divided by same circular peak.
+
+        minmax:
+            circular and annular responses jointly mapped to [0, 1]
+            within each source independently.
+            Ropt/Rsupp transformed using the same source-specific min/max.
+            X-markers stay untouched.
+    """
+
+    if response_mode not in ("raw", "peak_normalized", "minmax"):
+        raise ValueError(f"Invalid response_mode: {response_mode}")
+
+    ensure_dir(os.path.dirname(save_path))
+
+    # -------------------------
+    # poster sizing
+    # -------------------------
+    FIGSIZE = (10.5, 6.2)
+    LABELSIZE = 22
+    TICKSIZE = 15
+    TITLESIZE = 22
+    LEGENDSIZE = 15
+    LEGENDTITLESIZE = 15
+    LINEWIDTH = 2.4
+    MARKERSIZE = 7.0
+    LEGEND_MARKERSIZE = 7.0
+    TICKLEN = 6
+    TICKWIDTH = 1.4
+    MARKER_LW = 1.8
+
+    EXP_COLOR = ARTICLE_COLOR
+    MOD_COLOR = MODEL_COLOR
+    CONDITION_COLOR = "0.25"
+    MARKER_COLOR = "0.35"
+
+    def _prepare_curve_payload(curve):
+        if curve is None:
+            return None
+
+        radii = np.asarray(curve["radii"], dtype=float)
+        circ = np.asarray(curve["circular"], dtype=float)
+
+        if radii.size < 2 or circ.size < 2:
+            return None
+
+        n = min(radii.size, circ.size)
+        radii = radii[:n]
+        circ = circ[:n]
+
+        ann = curve.get("annular", None)
+        if ann is not None and show_annular:
+            ann = np.asarray(ann, dtype=float)[:n]
+        else:
+            ann = None
+
+        valid = np.isfinite(radii) & np.isfinite(circ)
+        if ann is not None:
+            valid = valid & np.isfinite(ann)
+
+        radii = radii[valid]
+        circ = circ[valid]
+        if ann is not None:
+            ann = ann[valid]
+
+        if radii.size < 2 or circ.size < 2:
+            return None
+
+        return {
+            "label": curve.get("label", ""),
+            "radii": radii,
+            "circular": circ,
+            "annular": ann,
+            "markers": curve.get("markers", None),
+        }
+
+    exp = _prepare_curve_payload(experimental_curve)
+    mod = _prepare_curve_payload(model_curve)
+
+    if exp is None or mod is None:
+        return None
+
+    def _copy_markers(markers):
+        if markers is None:
+            return None
+        return dict(markers)
+
+    def _normalize_response_marker_values(markers, *, mode, denom=None, lo=None, hi=None):
+        """
+        Normalize only response-valued marker entries.
+
+        Keep untouched:
+            GSF, surround_extent, AMRF, SI
+
+        Normalize:
+            Ropt, Rsupp
+        """
+        markers_n = _copy_markers(markers)
+        if markers_n is None:
+            return None
+
+        for k in ("Ropt", "Rsupp"):
+            try:
+                v = float(markers_n.get(k, np.nan))
+            except Exception:
+                markers_n[k] = np.nan
+                continue
+
+            if not np.isfinite(v):
+                markers_n[k] = np.nan
+                continue
+
+            if mode == "raw":
+                markers_n[k] = v
+
+            elif mode == "peak_normalized":
+                if denom is None or not np.isfinite(denom) or denom <= 0:
+                    markers_n[k] = np.nan
+                else:
+                    markers_n[k] = v / denom
+
+            elif mode == "minmax":
+                if (
+                    lo is None
+                    or hi is None
+                    or not np.isfinite(lo)
+                    or not np.isfinite(hi)
+                    or hi <= lo
+                ):
+                    markers_n[k] = np.nan
+                else:
+                    markers_n[k] = (v - lo) / (hi - lo)
+
+            else:
+                raise ValueError(f"Invalid marker normalization mode: {mode}")
+
+        return markers_n
+
+    def _normalize_payload(circ, ann, markers):
+        circ = np.asarray(circ, dtype=float)
+        ann = None if ann is None else np.asarray(ann, dtype=float)
+
+        if response_mode == "raw":
+            markers_n = _normalize_response_marker_values(markers, mode="raw")
+            return circ, ann, markers_n
+
+        if response_mode == "peak_normalized":
+            denom = float(np.nanmax(circ))
+
+            if not np.isfinite(denom) or denom <= 0:
+                markers_n = _normalize_response_marker_values(
+                    markers,
+                    mode="peak_normalized",
+                    denom=np.nan,
+                )
+                return circ, ann, markers_n
+
+            circ_n = circ / denom
+            ann_n = None if ann is None else ann / denom
+
+            markers_n = _normalize_response_marker_values(
+                markers,
+                mode="peak_normalized",
+                denom=denom,
+            )
+
+            return circ_n, ann_n, markers_n
+
+        if response_mode == "minmax":
+            parts = [circ[np.isfinite(circ)]]
+            if ann is not None:
+                parts.append(ann[np.isfinite(ann)])
+
+            vals = np.concatenate(parts) if len(parts) > 0 else np.array([], dtype=float)
+
+            if vals.size == 0:
+                markers_n = _normalize_response_marker_values(
+                    markers,
+                    mode="minmax",
+                    lo=np.nan,
+                    hi=np.nan,
+                )
+                return circ, ann, markers_n
+
+            lo = float(np.nanmin(vals))
+            hi = float(np.nanmax(vals))
+            span = hi - lo
+
+            if not np.isfinite(span) or span <= 0:
+                circ_n = np.zeros_like(circ, dtype=float)
+                ann_n = None if ann is None else np.zeros_like(ann, dtype=float)
+
+                markers_n = _normalize_response_marker_values(
+                    markers,
+                    mode="minmax",
+                    lo=np.nan,
+                    hi=np.nan,
+                )
+
+                return circ_n, ann_n, markers_n
+
+            circ_n = (circ - lo) / span
+            ann_n = None if ann is None else (ann - lo) / span
+
+            markers_n = _normalize_response_marker_values(
+                markers,
+                mode="minmax",
+                lo=lo,
+                hi=hi,
+            )
+
+            return circ_n, ann_n, markers_n
+
+        raise ValueError(f"Invalid response_mode: {response_mode}")
+
+    exp_circ, exp_ann, exp_markers = _normalize_payload(
+        exp["circular"],
+        exp["annular"],
+        exp.get("markers", None),
+    )
+
+    mod_circ, mod_ann, mod_markers = _normalize_payload(
+        mod["circular"],
+        mod["annular"],
+        mod.get("markers", None),
+    )
+
+    x_exp = 2.0 * exp["radii"] if use_diameter else exp["radii"]
+    x_mod = 2.0 * mod["radii"] if use_diameter else mod["radii"]
+
+    xlab = "Diameter (deg)" if use_diameter else "Radius (deg)"
+
+    if response_mode == "raw":
+        ylab = "Response magnitude"
+    elif response_mode == "peak_normalized":
+        ylab = "Peak-normalized response"
+    elif response_mode == "minmax":
+        ylab = "Normalized response"
+    else:
+        raise ValueError(f"Invalid response_mode: {response_mode}")
+
+    def _mark(ax, val, *, ls="--", lw=MARKER_LW, color="0.25"):
+        if val is None:
+            return
+        try:
+            v = float(val)
+        except Exception:
+            return
+        if not np.isfinite(v) or v < 0:
+            return
+
+        xv = 2.0 * v if use_diameter else v
+        ax.axvline(
+            xv,
+            lw=lw,
+            ls=ls,
+            color=color,
+            zorder=2,
+            alpha=0.75,
+        )
+
+    def _add_overlay_legend(ax):
+        """
+        One compact semantic legend inside the axes, middle right.
+        """
+        handles = [
+            # Source
+            Line2D(
+                [0], [0],
+                color=EXP_COLOR,
+                marker="o",
+                markersize=LEGEND_MARKERSIZE,
+                lw=LINEWIDTH,
+                linestyle="-",
+                markerfacecolor=EXP_COLOR,
+                markeredgecolor=EXP_COLOR,
+                label="Experiment",
+            ),
+            Line2D(
+                [0], [0],
+                color=MOD_COLOR,
+                marker="s",
+                markersize=LEGEND_MARKERSIZE,
+                lw=LINEWIDTH,
+                linestyle="-",
+                markerfacecolor=MOD_COLOR,
+                markeredgecolor=MOD_COLOR,
+                label="Model",
+            ),
+
+            # Condition
+            Line2D(
+                [0], [0],
+                color=CONDITION_COLOR,
+                marker="o",
+                markersize=LEGEND_MARKERSIZE,
+                lw=LINEWIDTH,
+                linestyle="-",
+                markerfacecolor=CONDITION_COLOR,
+                markeredgecolor=CONDITION_COLOR,
+                label="Circular",
+            ),
+            Line2D(
+                [0], [0],
+                color=CONDITION_COLOR,
+                marker="o",
+                markersize=LEGEND_MARKERSIZE,
+                lw=LINEWIDTH,
+                linestyle="--",
+                markerfacecolor=WHITE,
+                markeredgecolor=CONDITION_COLOR,
+                label="Annular",
+            ),
+
+            # Markers
+            Line2D(
+                [0], [0],
+                color=MARKER_COLOR,
+                lw=MARKER_LW,
+                linestyle=":",
+                label="GSF",
+            ),
+            Line2D(
+                [0], [0],
+                color=MARKER_COLOR,
+                lw=MARKER_LW,
+                linestyle="-.",
+                label="Surround extent",
+            ),
+        ]
+
+        ax.legend(
+            handles=handles,
+            frameon=False,
+            fontsize=12,
+            loc="center right",
+            bbox_to_anchor=(0.985, 0.50),
+            borderaxespad=0.2,
+            handlelength=1.8,
+            handletextpad=0.45,
+            labelspacing=0.25,
+            borderpad=0.1,
+        )
+    
+    def _draw_suppression_arrow(ax, x, markers, *, color, x_offset_frac=0.0, label_text=False):
+        """
+        Draw suppression arrow using already-normalized Ropt/Rsupp.
+
+        x_offset_frac shifts arrows horizontally so experiment/model arrows
+        do not sit exactly on top of each other.
+        """
+        if markers is None:
+            return
+
+        try:
+            Ropt = float(markers.get("Ropt", np.nan))
+            Rsupp = float(markers.get("Rsupp", np.nan))
+        except Exception:
+            return
+
+        if not (np.isfinite(Ropt) and np.isfinite(Rsupp)):
+            return
+        if Ropt <= Rsupp:
+            return
+
+        x = np.asarray(x, dtype=float)
+        x = x[np.isfinite(x)]
+        if x.size < 2:
+            return
+
+        x_min = float(np.min(x))
+        x_max = float(np.max(x))
+        xr = max(x_max - x_min, 1e-12)
+
+        # Prefer around surround extent if available.
+        x_arrow = None
+        try:
+            surr = float(markers.get("surround_extent", np.nan))
+            if np.isfinite(surr) and surr >= 0:
+                surr_x = 2.0 * surr if use_diameter else surr
+                x_arrow = surr_x - 0.18 * xr
+        except Exception:
+            pass
+
+        if x_arrow is None or not np.isfinite(x_arrow):
+            x_arrow = x_min + 0.72 * xr
+
+        x_arrow = x_arrow + x_offset_frac * xr
+        x_arrow = float(np.clip(x_arrow, x_min + 0.50 * xr, x_max - 0.08 * xr))
+
+        cap = 0.018 * xr
+
+        ax.annotate(
+            "",
+            xy=(x_arrow, Ropt),
+            xytext=(x_arrow, Rsupp),
+            arrowprops=dict(
+                arrowstyle="<->",
+                lw=1.4,
+                color=color,
+                shrinkA=0,
+                shrinkB=0,
+            ),
+            zorder=7,
+        )
+
+        ax.plot(
+            [x_arrow - cap, x_arrow + cap],
+            [Ropt, Ropt],
+            color=color,
+            lw=1.1,
+            zorder=7,
+        )
+        ax.plot(
+            [x_arrow - cap, x_arrow + cap],
+            [Rsupp, Rsupp],
+            color=color,
+            lw=1.1,
+            zorder=7,
+        )
+
+        if label_text:
+            ax.text(
+                x_arrow + 0.025 * xr,
+                0.5 * (Ropt + Rsupp),
+                "Suppression",
+                ha="left",
+                va="center",
+                fontsize=12,
+                color="0.15",
+                zorder=8,
+            )
+
+    fig, ax = plt.subplots(figsize=FIGSIZE)
+
+    # -------------------------
+    # Experimental/article curves
+    # -------------------------
+    ax.plot(
+        x_exp,
+        exp_circ,
+        marker="o",
+        markersize=MARKERSIZE,
+        mfc=EXP_COLOR,
+        mec=EXP_COLOR,
+        color=EXP_COLOR,
+        ls="-",
+        lw=LINEWIDTH,
+        zorder=4,
+    )
+
+    if exp_ann is not None:
+        ax.plot(
+            x_exp,
+            exp_ann,
+            marker="o",
+            markersize=MARKERSIZE,
+            mfc=WHITE,
+            mec=EXP_COLOR,
+            color=EXP_COLOR,
+            ls="--",
+            lw=LINEWIDTH,
+            zorder=4,
+        )
+
+    # -------------------------
+    # Model curves
+    # -------------------------
+    ax.plot(
+        x_mod,
+        mod_circ,
+        marker="s",
+        markersize=MARKERSIZE,
+        mfc=MOD_COLOR,
+        mec=MOD_COLOR,
+        color=MOD_COLOR,
+        ls="-",
+        lw=LINEWIDTH,
+        zorder=3,
+    )
+
+    if mod_ann is not None:
+        ax.plot(
+            x_mod,
+            mod_ann,
+            marker="s",
+            markersize=MARKERSIZE,
+            mfc=WHITE,
+            mec=MOD_COLOR,
+            color=MOD_COLOR,
+            ls="--",
+            lw=LINEWIDTH,
+            zorder=3,
+        )
+
+    # -------------------------
+    # Markers
+    # -------------------------
+    if show_markers:
+        if exp_markers is not None:
+            _mark(
+                ax,
+                exp_markers.get("GSF"),
+                ls=":",
+                color=EXP_COLOR,
+            )
+            _mark(
+                ax,
+                exp_markers.get("surround_extent"),
+                ls="-.",
+                color=EXP_COLOR,
+            )
+
+        if show_suppression:
+            _draw_suppression_arrow(
+                ax,
+                x_exp,
+                exp_markers,
+                color=EXP_COLOR,
+                x_offset_frac=-0.018,
+                label_text=True,
+            )
+
+        if mod_markers is not None:
+            _mark(
+                ax,
+                mod_markers.get("GSF"),
+                ls=":",
+                color=MOD_COLOR,
+            )
+            _mark(
+                ax,
+                mod_markers.get("surround_extent"),
+                ls="-.",
+                color=MOD_COLOR,
+            )
+
+        if show_suppression:
+            _draw_suppression_arrow(
+                ax,
+                x_mod,
+                mod_markers,
+                color=MOD_COLOR,
+                x_offset_frac=0.018,
+                label_text=False,
+            )
+
+    ax.set_xlabel(xlab, fontsize=LABELSIZE)
+    ax.set_ylabel(ylab, fontsize=LABELSIZE)
+
+    if show_titles:
+        ax.set_title("Size tuning overlay", fontsize=TITLESIZE)
+
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+
+    ax.tick_params(
+        axis="both",
+        which="both",
+        direction="out",
+        length=TICKLEN,
+        width=TICKWIDTH,
+        labelsize=TICKSIZE,
+    )
+
+    ax.grid(False)
+    ax.set_xlim(left=0)
+    ax.xaxis.set_major_locator(MultipleLocator(0.5))
+
+    if response_mode == "minmax":
+        ax.set_ylim(-0.03, 1.03)
+    elif response_mode == "peak_normalized":
+        ax.set_ylim(bottom=0)
+
+    _add_overlay_legend(ax)
+    fig.tight_layout()
+    fig.savefig(save_path, dpi=300, bbox_inches="tight")
+    plt.close(fig)
+
+    return save_path
+
+
+def plot_si_histogram_comparison(
+    *,
+    article_bin_edges,
+    article_proportions,
+    model_values,
+    save_path,
+    article_label="Experiment",
+    model_label="Model",
+    title=None,
+    show_titles=False,
+    article_style=True,
+):
+    """
+    One unified side-by-side SI histogram comparison:
+        - experimental/article data in black
+        - model data in predefined blue
+
+    Article data are pre-binned proportions.
+    Model data are raw SI values binned onto the same article edges.
+    """
+
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+
+    edges = np.asarray(article_bin_edges, dtype=float)
+    article_props = np.asarray(article_proportions, dtype=float)
+    model_values = np.asarray(model_values, dtype=float)
+    model_values = model_values[np.isfinite(model_values)]
+
+    if edges.ndim != 1 or edges.size < 2:
+        raise ValueError("article_bin_edges must be a 1D array with length >= 2.")
+
+    n_bins = len(edges) - 1
+    if article_props.ndim != 1 or article_props.size != n_bins:
+        raise ValueError(
+            f"article_proportions must have length {n_bins}, got {article_props.size}."
+        )
+
+    if model_values.size == 0:
+        raise ValueError("No finite model SI values.")
+
+    # defensive normalization of article proportions
+    s = np.nansum(article_props)
+    if np.isfinite(s) and s > 0:
+        article_props = article_props / s
+
+    # model -> same bins, proportions
+    model_weights = np.ones(model_values.shape, dtype=float) / model_values.size
+    model_props, _ = np.histogram(model_values, bins=edges, weights=model_weights)
+
+    widths = np.diff(edges)
+    centers = 0.5 * (edges[:-1] + edges[1:])
+
+    bar_fraction = 0.45
+    bar_widths = bar_fraction * widths
+
+    # Inner edges touch at bin center:
+    # Experiment is left of center, model is right of center.
+    article_left = centers - bar_widths
+    model_left = centers
+
+    fig, ax = plt.subplots(figsize=(5.6, 3.8))
+
+    ax.bar(
+        article_left,
+        article_props,
+        width=bar_widths,
+        align="edge",
+        facecolor=ARTICLE_COLOR,
+        edgecolor=ARTICLE_COLOR,
+        linewidth=1.2,
+        alpha=0.90,
+        label=article_label,
+        zorder=3,
+    )
+
+    ax.bar(
+        model_left,
+        model_props,
+        width=bar_widths,
+        align="edge",
+        facecolor=MODEL_COLOR,
+        edgecolor=MODEL_COLOR,
+        linewidth=1.2,
+        alpha=0.85,
+        label=model_label,
+        zorder=3,
+    )
+
+    ax.set_xlabel("Suppression Index (SI)")
+    ax.set_ylabel("Proportion of cells")
+
+    if show_titles and title:
+        ax.set_title(title)
+
+    ax.set_xlim(edges[0], edges[-1])
+    ax.set_xticks(edges)
+    ax.set_xticklabels([f"{x:.1f}" for x in edges])
+
+    ymax = max(
+        float(np.nanmax(article_props)) if article_props.size else 0.0,
+        float(np.nanmax(model_props)) if model_props.size else 0.0,
+    )
+    ax.set_ylim(0, max(0.05, 1.10 * ymax))
+
+    if article_style:
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+        ax.tick_params(direction="out", length=4, width=1)
+        ax.grid(False)
+
+    ax.legend(frameon=False)
+    fig.tight_layout()
+    fig.savefig(save_path, dpi=250, bbox_inches="tight")
+    plt.close(fig)
+
+    return save_path
+
+def plot_shared_metric_histogram_comparison(
+    *,
+    model_gsf_d,
+    model_surr_d,
+    scraped_gsf_d,
+    scraped_surr_d,
+    shared_bins,
+    shared_ymax=None,  # kept only for call-site compatibility; ignored
+    save_path,
+    model_si=None,
+    scraped_si_bin_edges=None,
+    scraped_si_proportions=None,
+    include_ratio=True,
+    include_si=True,
+    article_style=True,
+    show_titles=False,
+):
+    """
+    Shared metric histogram comparison.
+
+    Panels:
+        1) GSF diameter
+        2) Surround diameter
+        3) Surround / GSF
+        4) Suppression Index (SI), if provided
+
+    Visual convention:
+        experiment/scraped = ARTICLE_COLOR, plotted first, left side of bin
+        model              = MODEL_COLOR, plotted second, right side of bin
+
+    Y-axis:
+        fixed 0..1 by 0.2.
+
+    Titles:
+        drawn as inside-axis panel tags to avoid layout/title drift.
+    """
+
+    import os
+    import numpy as np
+    import matplotlib.pyplot as plt
+
+    def _clean_positive(vals):
+        vals = np.asarray(vals, dtype=float)
+        return vals[np.isfinite(vals) & (vals > 0)]
+
+    def _clean_finite(vals):
+        vals = np.asarray(vals, dtype=float)
+        return vals[np.isfinite(vals)]
+
+    def _hist_prop(vals, bins, *, positive=True):
+        vals = _clean_positive(vals) if positive else _clean_finite(vals)
+        if vals.size == 0:
+            return np.zeros(len(bins) - 1, dtype=float)
+
+        weights = np.ones(vals.shape, dtype=float) / len(vals)
+        hist, _ = np.histogram(vals, bins=bins, weights=weights)
+        return hist.astype(float)
+
+    def _fmt_edge_tick(v):
+        if v >= 10:
+            return f"{v:.0f}"
+        elif v >= 1:
+            return f"{v:.1f}"
+        else:
+            return f"{v:.2f}"
+
+    def _padded_log_xlim(bins, pad_frac=0.03):
+        bins = np.asarray(bins, dtype=float)
+        lo = float(bins[0])
+        hi = float(bins[-1])
+
+        log_lo = np.log10(lo)
+        log_hi = np.log10(hi)
+        span = max(log_hi - log_lo, 1e-12)
+
+        return (
+            10 ** (log_lo - pad_frac * span),
+            10 ** (log_hi + pad_frac * span),
+        )
+
+    def _split_bin_geometry_log_center_touch(bins, bar_fraction=0.45):
+        """
+        Split each parent bin in LOG SPACE.
+
+        Experiment:
+            [center - bar_fraction * bin_width, center]
+
+        Model:
+            [center, center + bar_fraction * bin_width]
+        """
+        bins = np.asarray(bins, dtype=float)
+
+        if np.any(~np.isfinite(bins)) or np.any(bins <= 0):
+            raise ValueError("Log bins must be finite and strictly positive.")
+
+        log_edges = np.log(bins)
+        log_centers = 0.5 * (log_edges[:-1] + log_edges[1:])
+        log_widths = np.diff(log_edges)
+
+        exp_log_left = log_centers - bar_fraction * log_widths
+        exp_log_right = log_centers
+
+        model_log_left = log_centers
+        model_log_right = log_centers + bar_fraction * log_widths
+
+        exp_left = np.exp(exp_log_left)
+        exp_right = np.exp(exp_log_right)
+
+        model_left = np.exp(model_log_left)
+        model_right = np.exp(model_log_right)
+
+        return (
+            exp_left,
+            exp_right - exp_left,
+            model_left,
+            model_right - model_left,
+        )
+
+    def _split_bin_geometry_linear_center_touch(edges, bar_fraction=0.45):
+        """
+        Same as log version, but in linear space.
+        Used for SI.
+        """
+        edges = np.asarray(edges, dtype=float)
+        widths = np.diff(edges)
+        centers = 0.5 * (edges[:-1] + edges[1:])
+
+        bar_widths = bar_fraction * widths
+        exp_left = centers - bar_widths
+        model_left = centers
+
+        return exp_left, bar_widths, model_left, bar_widths
+
+    def _normalise_props(props):
+        props = np.asarray(props, dtype=float)
+        s = np.nansum(props)
+        if np.isfinite(s) and s > 0:
+            props = props / s
+        return props
+
+    # -------------------------
+    # poster sizing
+    # -------------------------
+    FIGSIZE_PER_PANEL = 4.1
+    FIGHEIGHT = 5.2
+
+    LABELSIZE = 20
+    TICKSIZE = 14
+    TITLESIZE = 18
+    LEGENDSIZE = 18
+
+    BAR_LW = 1.6
+    GRID_LW = 0.8
+    VLINE_LW = 0.8
+    TICKLEN = 6
+    TICKWIDTH = 1.4
+
+    BAR_FRACTION = 0.45
+
+    EXP_COLOR = ARTICLE_COLOR
+    MOD_COLOR = MODEL_COLOR
+
+    # -------------------------
+    # Clean inputs
+    # -------------------------
+    model_gsf_d = _clean_positive(model_gsf_d)
+    model_surr_d = _clean_positive(model_surr_d)
+    scraped_gsf_d = _clean_positive(scraped_gsf_d)
+    scraped_surr_d = _clean_positive(scraped_surr_d)
+
+    if (
+        model_gsf_d.size == 0
+        or model_surr_d.size == 0
+        or scraped_gsf_d.size == 0
+        or scraped_surr_d.size == 0
+    ):
+        raise ValueError("Missing valid model/scraped metric values.")
+
+    model_ratio = _clean_positive(model_surr_d / model_gsf_d)
+    scraped_ratio = _clean_positive(scraped_surr_d / scraped_gsf_d)
+
+    panels = [
+        {
+            "kind": "log",
+            "key": "gsf",
+            "model_vals": model_gsf_d,
+            "exp_vals": scraped_gsf_d,
+            "xlabel": "GSF diameter (deg)",
+            "title": "GSF",
+        },
+        {
+            "kind": "log",
+            "key": "surr",
+            "model_vals": model_surr_d,
+            "exp_vals": scraped_surr_d,
+            "xlabel": "Surround diameter (deg)",
+            "title": "Surround",
+        },
+    ]
+
+    if include_ratio:
+        if model_ratio.size == 0 or scraped_ratio.size == 0:
+            raise ValueError("Missing valid ratio values.")
+
+        panels.append(
+            {
+                "kind": "log",
+                "key": "ratio",
+                "model_vals": model_ratio,
+                "exp_vals": scraped_ratio,
+                "xlabel": "Surround / GSF",
+                "title": "Ratio",
+            }
+        )
+
+    if include_si:
+        has_si = (
+            model_si is not None
+            and scraped_si_bin_edges is not None
+            and scraped_si_proportions is not None
+        )
+
+        if has_si:
+            si_edges = np.asarray(scraped_si_bin_edges, dtype=float)
+            si_props = np.asarray(scraped_si_proportions, dtype=float)
+
+            if si_edges.ndim != 1 or si_edges.size < 2:
+                raise ValueError("scraped_si_bin_edges must be a 1D array length >= 2.")
+
+            if si_props.ndim != 1 or si_props.size != si_edges.size - 1:
+                raise ValueError(
+                    f"scraped_si_proportions must have length {si_edges.size - 1}, "
+                    f"got {si_props.size}."
+                )
+
+            panels.append(
+                {
+                    "kind": "linear_prebinned_exp",
+                    "key": "si",
+                    "model_vals": _clean_finite(model_si),
+                    "exp_props": _normalise_props(si_props),
+                    "bins": si_edges,
+                    "xlabel": "Suppression Index (SI)",
+                    "title": "SI",
+                }
+            )
+
+    # -------------------------
+    # Figure layout
+    # -------------------------
+    width_ratios = [
+        1.45 if panel["key"] == "si" else 1.0
+        for panel in panels
+    ]
+
+    fig, axes = plt.subplots(
+        1,
+        len(panels),
+        figsize=(FIGSIZE_PER_PANEL * sum(width_ratios), FIGHEIGHT),
+        sharey=True,
+        constrained_layout=False,
+        gridspec_kw={"width_ratios": width_ratios},
+    )
+
+    if len(panels) == 1:
+        axes = [axes]
+
+    fig.subplots_adjust(
+        left=0.06,
+        right=0.995,
+        bottom=0.28,
+        top=0.96,
+        wspace=0.18,
+    )
+
+    def _fmt_edge_tick(v):
+        return f"{float(v):.1f}"
+
+    # -------------------------
+    # Draw panels
+    # -------------------------
+    for ax, panel in zip(axes, panels):
+        kind = panel["kind"]
+        xlabel = panel["xlabel"]
+
+        if kind == "log":
+            key = panel["key"]
+            if key not in shared_bins:
+                raise KeyError(f"shared_bins missing key: {key}")
+
+            bins = np.asarray(shared_bins[key], dtype=float)
+
+            model_hist = _hist_prop(panel["model_vals"], bins, positive=True)
+            exp_hist = _hist_prop(panel["exp_vals"], bins, positive=True)
+
+            exp_left, exp_width, model_left, model_width = _split_bin_geometry_log_center_touch(
+                bins,
+                bar_fraction=BAR_FRACTION,
+            )
+
+            ax.set_xscale("log")
+            xlo, xhi = _padded_log_xlim(bins, pad_frac=0.03)
+            ax.set_xlim(xlo, xhi)
+
+            ax.set_xticks(bins)
+            ax.set_xticks(bins)
+            ax.set_xticklabels(
+                [_fmt_edge_tick(b) for b in bins],
+                rotation=45,
+                ha="right",
+            )
+            ax.minorticks_off()
+
+            for b in bins[1:-1]:
+                ax.axvline(
+                    b,
+                    color="black",
+                    lw=VLINE_LW,
+                    alpha=0.08,
+                    zorder=1,
+                )
+
+        elif kind == "linear_prebinned_exp":
+            bins = np.asarray(panel["bins"], dtype=float)
+
+            exp_hist = np.asarray(panel["exp_props"], dtype=float)
+            model_hist = _hist_prop(panel["model_vals"], bins, positive=False)
+
+            exp_left, exp_width, model_left, model_width = _split_bin_geometry_linear_center_touch(
+                bins,
+                bar_fraction=BAR_FRACTION,
+            )
+
+            ax.set_xlim(float(bins[0]), float(bins[-1]))
+
+            ax.set_xticks(bins)
+            ax.set_xticklabels(
+                [f"{float(b):.1f}" for b in bins],
+                rotation=45,
+                ha="right",
+            )
+
+            for b in bins[1:-1]:
+                ax.axvline(
+                    b,
+                    color="black",
+                    lw=VLINE_LW,
+                    alpha=0.08,
+                    zorder=1,
+                )
+
+        else:
+            raise ValueError(f"Unknown panel kind: {kind}")
+
+        # Experiment first, black, left side
+        ax.bar(
+            exp_left,
+            exp_hist,
+            width=exp_width,
+            align="edge",
+            facecolor=EXP_COLOR,
+            edgecolor=EXP_COLOR,
+            linewidth=BAR_LW,
+            alpha=0.90,
+            label="Experiment",
+            zorder=4,
+        )
+
+        # Model second, blue, right side
+        ax.bar(
+            model_left,
+            model_hist,
+            width=model_width,
+            align="edge",
+            facecolor=MOD_COLOR,
+            edgecolor=MOD_COLOR,
+            linewidth=BAR_LW,
+            alpha=0.85,
+            label="Model",
+            zorder=3,
+        )
+
+        # Panel tag inside axes. This does not drift.
+        if show_titles:
+            ax.text(
+                0.5,
+                0.955,
+                panel["title"],
+                transform=ax.transAxes,
+                ha="center",
+                va="top",
+                fontsize=TITLESIZE,
+                fontweight="normal",
+                color="0.1",
+                zorder=30,
+            )
+
+        ax.set_xlabel(xlabel, fontsize=LABELSIZE)
+
+        ax.yaxis.grid(True, linestyle="--", linewidth=GRID_LW, alpha=0.35)
+        ax.set_axisbelow(True)
+
+        if article_style:
+            ax.spines["top"].set_visible(False)
+            ax.spines["right"].set_visible(False)
+            ax.tick_params(
+                direction="out",
+                length=TICKLEN,
+                width=TICKWIDTH,
+                labelsize=TICKSIZE,
+            )
+
+    # -------------------------
+    # Fixed shared y-axis: 0..1 by 0.2
+    # -------------------------
+    Y_TICKS = np.arange(0.0, 1.0001, 0.2)
+
+    for ax in axes:
+        ax.set_ylim(0.0, 1.0)
+        ax.set_yticks(Y_TICKS)
+
+    axes[0].set_ylabel("Proportion of cells", fontsize=LABELSIZE)
+    axes[0].set_yticklabels(
+        [f"{v:.1f}" if v not in (0, 1) else f"{int(v)}" for v in Y_TICKS]
+    )
+
+    for ax in axes[1:]:
+        ax.set_ylabel("")
+        ax.tick_params(axis="y", labelleft=False)
+
+    # -------------------------
+    # One legend
+    # -------------------------
+    handles, labels = axes[0].get_legend_handles_labels()
+    axes[0].legend(
+        handles[:2],
+        labels[:2],
+        frameon=False,
+        fontsize=LEGENDSIZE,
+        loc="upper right",
+        handlelength=1.8,
+        handletextpad=0.5,
+        labelspacing=0.4,
+        borderpad=0.2,
+    )
+
+    # -------------------------
+    # Final spacing / save
+    # -------------------------
+    fig.subplots_adjust(
+        left=0.06,
+        right=0.995,
+        bottom=0.22,
+        top=0.97,
+        wspace=0.18,
+    )
+
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+    fig.savefig(save_path, dpi=300)
+    plt.close(fig)
+
+    return save_path

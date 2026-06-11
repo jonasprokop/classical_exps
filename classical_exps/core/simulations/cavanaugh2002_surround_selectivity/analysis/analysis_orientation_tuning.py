@@ -60,6 +60,10 @@ LIGHT = "0.85"
 WHITE = "white"
 
 
+ARTICLE_COLOR = BLACK
+MODEL_COLOR = "#2F5D8C"
+
+
 BIN_WIDTH_3A = 30.0
 
 MODEL_BINS_3A = np.array([0.0, 30.0, 60.0, 90.0, 120.0, 150.0, 180.0], dtype=float)
@@ -71,6 +75,441 @@ SCRAPED_XLIM_3A = (0.0, 180.0)
 SCRAPED_XTICKS_3A = [0, 30, 60, 90, 120, 150, 180]
 
 COMMON_YLIM_3A = (0.0, 0.7)
+
+
+# Touchpoint function
+
+def orientation_tuning_results(
+    h5_file,
+    neuron_ids,
+    fit_err_thresh=0.2,
+    supp_thresh=0.1,
+    scraped_orietation_tuning_data=None,
+    out_path="/project/results/selectivity_and_spatial_distribution/population/mean_orientation_tuning_curves",
+    curve_out_path="/project/results/selectivity_and_spatial_distribution/single_neuron/orientation_tuning_curve",
+    figure_1_out_path="/project/results/selectivity_and_spatial_distribution/population/orientation_tuning_overviews",
+    figure_3_out_path="/project/results/selectivity_and_spatial_distribution/population/orientation_tuning_figure_3",
+    figure_4_out_path="/project/results/selectivity_and_spatial_distribution/semi/orientation_tuning_figure_4",
+    plot_tunning_curves=False,
+    plot_histograms=True,
+    plot_fig_1=False,
+    plot_fig_4=True,
+    center_contrasts=None,
+):
+    """
+    Visualise responses of neurons to different center and surround orientations.
+
+    Workflow:
+        1) Filter neurons
+        2) Load orientation-tuning data
+        3) Fold into orientation space
+        4) Plot mean tuning curves
+        5) Optionally save per-neuron tuning curves
+        6) Optionally save Figure 1-style plots
+        7) Optionally save Figure 3 plots
+        8) Optionally save Figure 4 per-neuron inspection plots + population histograms
+
+    Prerequisite:
+        - size_tuning_experiment_all_phases executed for required neurons
+        - orientation_tuning_experiment_all_phases executed for required neurons
+
+    Filtering:
+        - Exclude neurons with poor Gaussian RF fits
+        - Exclude neurons with no surround suppression / saturation
+        - Exclude neurons without valid GSF / AMRF
+        - Optionally exclude low suppression neurons
+    """
+
+    group_path = "/orientation_tuning"
+
+    # -------------------------------------------------------------------------
+    # Check experiment presence
+    # -------------------------------------------------------------------------
+    check_group_exists_error(h5_file=h5_file, group_path=group_path)
+
+    print(scraped_orietation_tuning_data)
+
+    # -------------------------------------------------------------------------
+    # Filtering
+    # -------------------------------------------------------------------------
+    filtered_neuron_ids = get_selectivity_filtered_neuron_ids(
+        h5_file=h5_file,
+        neuron_ids=neuron_ids,
+        fit_err_thresh=fit_err_thresh,
+        supp_thresh=supp_thresh,
+        apply_fit_error_filter=True,
+        apply_no_supp_filter=True,
+        apply_low_supp_filter=True,
+        apply_valid_gsf_amrf_filter=True,
+        verbose=False,
+    )
+
+    check_neurons_presence_error(
+        h5_file=h5_file,
+        list_group_path=[
+            group_path + "/curves_center",
+            group_path + "/curves_surround_only",
+            group_path + "/curves_center_surround",
+        ],
+        neuron_ids=filtered_neuron_ids,
+    )
+
+    n = len(neuron_ids)
+    n_new = len(filtered_neuron_ids)
+
+    # -------------------------------------------------------------------------
+    # Load once, then fold once
+    # -------------------------------------------------------------------------
+    loaded = load_orientation_tuning_bulk(
+        h5_file=h5_file,
+        neuron_ids=filtered_neuron_ids,
+        strict=False,
+    )
+
+    present_ids = np.asarray(loaded["present_ids"], dtype=int)
+    missing_ids = np.asarray(loaded["missing_ids"], dtype=int)
+    by_id = loaded["by_id"]
+    ori_shifts_rad = np.asarray(loaded["ori_shifts_rad"], dtype=float)
+    ori_shifts_deg = np.asarray(loaded["ori_shifts_deg"], dtype=float)
+
+    n_loaded = len(present_ids)
+
+    print("--------------------------------------")
+    print("Visualisation of orientation tuning curves:")
+    print(f"    > Analysis made on {n} neurons")
+    if n > 0:
+        print(f"    > {n_new} neurons ({round((n_new / n * 100), 2)}%) left after filtration")
+    else:
+        print("    > 0 neurons left after filtration")
+    print(f"    > {n_loaded} neurons successfully loaded")
+    if len(missing_ids) > 0:
+        print(f"    > {len(missing_ids)} neurons were missing or malformed in orientation tuning datasets")
+    print()
+    print("    > The mean curves across every neuron:")
+
+    if n_loaded == 0:
+        print()
+        print("    > No neurons available for plotting.")
+        print("--------------------------------------")
+        print()
+        return {
+            "filtered_neuron_ids": np.asarray(filtered_neuron_ids, dtype=int),
+            "loaded_neuron_ids": np.asarray([], dtype=int),
+            "missing_neuron_ids": np.asarray(missing_ids, dtype=int),
+            "mean_plot_path": None,
+            "curve_plot_paths": [],
+            "figure_1_plot_paths": {"overview": [], "matrix": []},
+            "hist_plot_path": None,
+            "figure_3_plot_paths": {},
+            "figure_4_plot_paths": {
+                "per_neuron": [],
+                "population_histograms": None,
+                "summary": [],
+            },
+        }
+
+    # -------------------------------------------------------------------------
+    # Build stacked arrays for mean plots
+    # -------------------------------------------------------------------------
+    curves_center = np.asarray(
+        [by_id[int(neuron_id)]["center"] for neuron_id in present_ids],
+        dtype=float,
+    )
+    curves_surround = np.asarray(
+        [by_id[int(neuron_id)]["surround_fixed_center"] for neuron_id in present_ids],
+        dtype=float,
+    )
+    
+    def _normalize_curves_by_row_max(curves, *, ref_curves=None):
+        """
+        Normalize each row by its own maximum, or by the maximum of ref_curves
+        if provided. Returns NaN for rows with invalid / non-positive scale.
+        """
+        curves = np.asarray(curves, dtype=float)
+
+        if ref_curves is None:
+            ref_curves = curves
+        else:
+            ref_curves = np.asarray(ref_curves, dtype=float)
+
+        scale = np.max(ref_curves, axis=1, keepdims=True)
+        valid = np.isfinite(scale) & (scale > 0)
+        scale = np.where(valid, scale, np.nan)
+
+        return curves / scale
+    
+    curves_center_norm = _normalize_curves_by_row_max(curves_center)
+    curves_surround_norm = _normalize_curves_by_row_max(curves_surround, ref_curves=curves_center)
+
+    mean_curve_center = np.nanmean(curves_center_norm, axis=0)
+    mean_curve_surround = np.nanmean(curves_surround_norm, axis=0)
+
+
+    mean_plot_path = plot_mean_orientation_tuning(
+        ori_shifts_deg=ori_shifts_deg,
+        mean_curve_center=mean_curve_center,
+        mean_curve_surround=mean_curve_surround,
+        out_path=out_path,
+    )
+
+    # -------------------------------------------------------------------------
+    # Per-neuron simple tuning curves
+    # -------------------------------------------------------------------------
+    curve_plot_paths = []
+    scraped_curve_plot_paths = []
+
+    if plot_tunning_curves:
+        print()
+        print("    > Saving simple orientation tuning curves for all loaded neurons:")
+
+        for neuron_id in present_ids:
+            save_path = plot_orientation_tuning_curve(
+                neuron_id=int(neuron_id),
+                neuron_data=by_id[int(neuron_id)],
+                ori_shifts_deg=ori_shifts_deg,
+                out_path=curve_out_path,
+            )
+            curve_plot_paths.append(save_path)
+
+        print(f"    > Saved {len(curve_plot_paths)} simple per-neuron plots")
+
+    # -------------------------------------------------------------------------
+    # Figure 1
+    # -------------------------------------------------------------------------
+    overview_plot_paths = []
+    figure_1_matrix_plot_paths = []
+
+    if plot_fig_1:
+        print()
+        print("    > Saving Figure 1 overview plots for all loaded neurons:")
+
+        figure_1_overview_out_path = os.path.join(figure_1_out_path, "overview_style")
+        for neuron_id in present_ids:
+            save_path = plot_orientation_overview_figure(
+                neuron_id=int(neuron_id),
+                neuron_data=by_id[int(neuron_id)],
+                ori_shifts_deg=ori_shifts_deg,
+                out_path=figure_1_overview_out_path,
+            )
+            overview_plot_paths.append(save_path)
+
+        print(f"    > Saved {len(overview_plot_paths)} Figure 1 overview plots")
+
+        print()
+        print("    > Saving paper-style Figure 1 matrix plots:")
+
+        figure_1_matrix_out_path = os.path.join(figure_1_out_path, "matrix_style")
+        for neuron_id in present_ids:
+            save_path = plot_orientation_tuning_figure_1_matrix(
+                neuron_id=int(neuron_id),
+                neuron_data=by_id[int(neuron_id)],
+                ori_shifts_deg=ori_shifts_deg,
+                out_path=figure_1_matrix_out_path,
+            )
+            figure_1_matrix_plot_paths.append(save_path)
+
+        print(f"    > Saved {len(figure_1_matrix_plot_paths)} paper-style Figure 1 matrix plots")
+
+
+    # -------------------------------------------------------------------------
+    # Scraped article examples: article-style only
+    # -------------------------------------------------------------------------
+    if scraped_orietation_tuning_data is not None:
+        print()
+        print("    > Saving scraped article-style orientation tuning examples:")
+
+        scraped_examples = build_scraped_orientation_examples(scraped_orietation_tuning_data)
+
+        if scraped_examples is None or len(scraped_examples["labels"]) == 0:
+            print("    > No scraped orientation examples found")
+        else:
+            scraped_out_path = os.path.join(curve_out_path, "scraped_article_style")
+
+            for label in scraped_examples["labels"]:
+                save_path = plot_scraped_article_orientation_example(
+                    label=label,
+                    scraped_neuron_data=scraped_examples["by_label"][label],
+                    out_path=scraped_out_path,
+                )
+                scraped_curve_plot_paths.append(save_path)
+
+            print(f"    > Saved {len(scraped_curve_plot_paths)} scraped article-style example plots")
+
+
+    # -------------------------------------------------------------------------
+    # Histograms + Figure 3
+    # -------------------------------------------------------------------------
+    hist_path = None
+    figure_3_plot_paths = {}
+    scraped_figure_3A_path = None
+    scraped_figure_3B_path = None
+    scraped_figure_3D_path = None
+
+    if plot_histograms:
+        suppress_data = compute_most_suppressive_surround(
+            loaded_orientation=loaded,
+            center_angles_rad=(-np.pi / 4.0, 0.0, np.pi / 4.0),
+            min_center_response_frac=0.10,
+            use_nearest_sampled=True,
+        )
+
+        hist_path = plot_most_suppressive_surround_histograms(
+            suppress_data,
+            loaded["ori_shifts_rad"],
+            out_path="/project/results/selectivity_and_spatial_distribution/orientation_tuning_histograms",
+        )
+
+        print()
+        print("    > Saving adapted Figure 3 panels:")
+
+        fig3_data = compute_orientation_figure_3_data(loaded)
+
+        figure_3_plot_paths = plot_orientation_tuning_figure_3_all(
+            fig3_data,
+            out_path=figure_3_out_path,
+            prefix="orientation_tuning_figure_3",
+        )
+
+        print(f"    > Saved Figure 3A plot to {figure_3_plot_paths['A']}")
+        print(f"    > Saved Figure 3B plot to {figure_3_plot_paths['B']}")
+        print(f"    > Saved Figure 3D plot to {figure_3_plot_paths['D']}")
+
+        if scraped_orietation_tuning_data is not None:
+            scraped_out_path = os.path.join(figure_3_out_path, "scraped")
+
+            scraped_figure_3A_path = plot_scraped_orientation_figure_3A(
+                scraped_orietation_tuning_data,
+                out_path=scraped_out_path,
+                filename="orientation_tuning_figure_3A_scraped.png",
+            )
+            if scraped_figure_3A_path is not None:
+                print(f"    > Saved scraped Figure 3A plot to {scraped_figure_3A_path}")
+
+            scraped_figure_3B_path = plot_scraped_orientation_figure_3B(
+                scraped_orietation_tuning_data,
+                out_path=scraped_out_path,
+                filename="orientation_tuning_figure_3B_scraped.png",
+            )
+            if scraped_figure_3B_path is not None:
+                print(f"    > Saved scraped Figure 3B plot to {scraped_figure_3B_path}")
+
+            scraped_figure_3D_path = plot_scraped_orientation_figure_3D(
+                scraped_orietation_tuning_data,
+                out_path=scraped_out_path,
+                filename="orientation_tuning_figure_3D_scraped.png",
+            )
+            if scraped_figure_3D_path is not None:
+                print(f"    > Saved scraped Figure 3D plot to {scraped_figure_3D_path}")
+
+    # -------------------------------------------------------------------------
+    # Figure 3A: joint plot
+    # -------------------------------------------------------------------------
+
+    joint_figure_3A_path = None
+
+    if scraped_orietation_tuning_data is not None:
+        joint_figure_3A_path = plot_orientation_tuning_figure_3A_model_article_overlay(
+            fig3_data=fig3_data,
+            scraped_orientation_tuning_data=scraped_orietation_tuning_data,
+            out_path=figure_3_out_path,
+            filename="orientation_tuning_figure_3A_model_article_overlay.svg",
+        )
+
+        print(f"    > Saved joint Figure 3A overlay to {joint_figure_3A_path}")
+
+
+    # -------------------------------------------------------------------------
+    # Figure 3B: joint plot
+    # -------------------------------------------------------------------------
+
+    joint_figure_3B_path = None
+
+    if scraped_orietation_tuning_data is not None:
+        joint_figure_3B_path = plot_orientation_tuning_figure_3B_model_article_overlay(
+            fig3_data=fig3_data,
+            scraped_orientation_tuning_data=scraped_orietation_tuning_data,
+            out_path=figure_3_out_path,
+            filename="orientation_tuning_figure_3B_model_article_overlay.svg",
+        )
+
+        print(f"    > Saved joint Figure 3B overlay to {joint_figure_3B_path}")
+
+
+    # -------------------------------------------------------------------------
+    # Figure 3D: joint plot
+    # -------------------------------------------------------------------------
+    joint_figure_3D_path = None
+
+    if scraped_orietation_tuning_data is not None:
+        joint_figure_3D_path = plot_orientation_tuning_figure_3D_model_article_overlay(
+            fig3_data=fig3_data,
+            scraped_orientation_tuning_data=scraped_orietation_tuning_data,
+            out_path=figure_3_out_path,
+            filename="orientation_tuning_figure_3D_model_article_overlay.svg",
+            show_model_sem=True,
+            close_endpoint=True,
+        )
+
+        print(f"    > Saved joint Figure 3D overlay to {joint_figure_3D_path}")
+
+
+    # -------------------------------------------------------------------------
+    # Figure 4
+    # -------------------------------------------------------------------------
+    figure_4_plot_paths = {}
+
+    if plot_fig_4:
+        print()
+        print("    > Preparing adapted Figure 4 data:")
+
+        fig4_result = run_orientation_tuning_figure_4(
+            h5_file=h5_file,
+            neuron_ids=filtered_neuron_ids,
+            out_path=figure_4_out_path,
+            mode="separate",   # or "combined"
+            example_neuron_id=None,
+            center_angles_rad=(-np.pi / 4.0, 0.0, np.pi / 4.0),
+            min_center_response_frac=0.10,
+            print_summary=True,
+        )
+
+        figure_4_plot_paths = fig4_result["plot_paths"]
+
+        print(f"    > Saved Figure 4 outputs to {figure_4_out_path}")
+
+        fig4_scraped_result = run_scraped_orientation_tuning_figure_4_df_population(
+        fig4_df_population_data=scraped_orietation_tuning_data["figure_4_df_population_data"],
+        out_path="/project/results/selectivity_and_spatial_distribution/scraped_figure_4_population",
+        mode="separate",   # or "combined"
+)
+
+    return {
+
+        # universal information 
+        "filtered_neuron_ids": np.asarray(filtered_neuron_ids, dtype=int),
+        "loaded_neuron_ids": np.asarray(present_ids, dtype=int),
+        "missing_neuron_ids": np.asarray(missing_ids, dtype=int),
+
+        # mean and per-neuron curve plot paths
+        "mean_plot_path": mean_plot_path,
+        "curve_plot_paths": curve_plot_paths,
+
+        # overview and paper-style Figure 1 plot paths
+        "figure_1_plot_paths": {
+            "overview": overview_plot_paths,
+            "matrix": figure_1_matrix_plot_paths,
+        },
+
+        # Figure 3 and 4 plot paths
+        "hist_plot_path": hist_path,
+        "figure_3_plot_paths": figure_3_plot_paths,
+        "figure_4_plot_paths": figure_4_plot_paths,
+
+        # Figure 3 and 4 joint compare plot paths
+        "joint_figure_3A_path": joint_figure_3A_path,
+        "joint_figure_3B_path": joint_figure_3B_path,
+        "joint_figure_3D_path": joint_figure_3D_path,
+    }
 
 
 
@@ -162,6 +601,149 @@ def build_scraped_orientation_examples(scraped_orientation_tuning_data):
     return {
         "labels": labels,
         "by_label": by_label,
+    }
+
+def _close_orientation_curve_endpoint(x_deg, *ys, left=-90.0, right=90.0):
+    """
+    Close folded orientation-space curves by recycling one circular endpoint.
+
+    Handles both conventions:
+        [-90, -45, 0, 45] -> add +90 from -90
+        [-45, 0, 45, 90] -> add -90 from +90
+
+    If both endpoints exist, does nothing.
+    If neither endpoint exists, does nothing.
+    """
+    x_deg = np.asarray(x_deg, dtype=float)
+    ys = [np.asarray(y, dtype=float) for y in ys]
+
+    for y in ys:
+        if y.shape != x_deg.shape:
+            raise ValueError("All y arrays must have the same shape as x_deg")
+
+    has_left = np.any(np.isclose(x_deg, left))
+    has_right = np.any(np.isclose(x_deg, right))
+
+    if has_left and not has_right:
+        idx = int(np.where(np.isclose(x_deg, left))[0][0])
+
+        x_deg = np.append(x_deg, right)
+        ys = [np.append(y, y[idx]) for y in ys]
+
+    elif has_right and not has_left:
+        idx = int(np.where(np.isclose(x_deg, right))[0][0])
+
+        x_deg = np.append(x_deg, left)
+        ys = [np.append(y, y[idx]) for y in ys]
+
+    order = np.argsort(x_deg)
+
+    return (x_deg[order], *[y[order] for y in ys])
+
+def build_scraped_figure_3D_orientation_mean(
+    scraped_orientation_tuning_data,
+    *,
+    normalize=True,
+    close_endpoint=True,
+):
+    """
+    Fold scraped article Figure 3D mean direction curves into orientation space.
+
+    Expected input:
+        scraped_orientation_tuning_data["figure_3_panel_D_data"]
+
+    Uses existing _wrap_orientation_deg(...).
+
+    Output:
+        {
+            "orientation_deg": np.ndarray,
+            "center_response": np.ndarray,
+            "surround_response": np.ndarray,
+            "normalization": float,
+        }
+    """
+    if scraped_orientation_tuning_data is None:
+        return None
+
+    panel = scraped_orientation_tuning_data.get("figure_3_panel_D_data", None)
+    if panel is None:
+        return None
+
+    direction_deg = np.asarray(
+        panel["direction_relative_to_preferred_deg"],
+        dtype=float,
+    )
+    center = np.asarray(panel["mean_center_response"], dtype=float)
+    surround = np.asarray(panel["mean_surround_response"], dtype=float)
+
+    if not (direction_deg.shape == center.shape == surround.shape):
+        raise ValueError(
+            "Figure 3D scraped direction, center, and surround arrays must have the same shape"
+        )
+
+    orientation_deg = _wrap_orientation_deg(direction_deg)
+
+    grouped = {}
+
+    for ori, c, s in zip(orientation_deg, center, surround):
+        if not (np.isfinite(ori) and np.isfinite(c) and np.isfinite(s)):
+            continue
+
+        key = float(np.round(ori, 8))
+
+        if key not in grouped:
+            grouped[key] = {
+                "center": [],
+                "surround": [],
+            }
+
+        grouped[key]["center"].append(float(c))
+        grouped[key]["surround"].append(float(s))
+
+    if not grouped:
+        raise ValueError("No finite scraped Figure 3D values after folding")
+
+    x = []
+    y_center = []
+    y_surround = []
+
+    for key in sorted(grouped.keys()):
+        x.append(float(key))
+        y_center.append(float(np.mean(grouped[key]["center"])))
+        y_surround.append(float(np.mean(grouped[key]["surround"])))
+
+    x = np.asarray(x, dtype=float)
+    y_center = np.asarray(y_center, dtype=float)
+    y_surround = np.asarray(y_surround, dtype=float)
+
+    norm = 1.0
+
+    if normalize:
+        norm = float(np.nanmax(y_center))
+
+        if not np.isfinite(norm) or np.isclose(norm, 0.0):
+            raise ValueError("Cannot normalize scraped Figure 3D: invalid center peak")
+
+        y_center = y_center / norm
+        y_surround = y_surround / norm
+
+    order = np.argsort(x)
+    x = x[order]
+    y_center = y_center[order]
+    y_surround = y_surround[order]
+
+    if close_endpoint:
+        x, y_center, y_surround = _close_orientation_curve_endpoint(
+            x,
+            y_center,
+            y_surround,
+        )
+
+    return {
+        "orientation_deg": x,
+        "center_response": y_center,
+        "surround_response": y_surround,
+        "normalization": norm,
     }
 
 def fold_direction_curve_to_orientation(curve):
@@ -1124,6 +1706,204 @@ def plot_orientation_tuning_figure_3A(
     plt.close(fig)
     return save_path
 
+def plot_orientation_tuning_figure_3A_model_article_overlay(
+    fig3_data,
+    scraped_orientation_tuning_data,
+    out_path="/project/results/selectivity_and_spatial_distribution/orientation_tuning_figure_3",
+    filename="orientation_tuning_figure_3A_model_article_overlay.png",
+):
+    """
+    Joint Figure 3A:
+    model vs experimental proportions of difference in optimal orientation.
+
+    Uses side-by-side bars within each 30 deg bin.
+    """
+    ensure_dir(out_path)
+
+    # ------------------------------------------------------------------
+    # Scraped article data
+    # ------------------------------------------------------------------
+    if scraped_orientation_tuning_data is None:
+        raise ValueError("Missing scraped orientation tuning data")
+
+    article_3A = fold_scraped_figure_3A_direction_to_orientation(
+        scraped_orientation_tuning_data,
+        renormalize=True,
+    )
+
+    bin_edges = article_3A["bin_edges"]
+    bin_centers = article_3A["bin_centers"]
+    article_props = article_3A["proportions"]
+
+    # ------------------------------------------------------------------
+    # Model data -> proportions in the same bins
+    # ------------------------------------------------------------------
+    delta_deg = np.asarray(fig3_data["delta_deg"], dtype=float)
+    delta_deg = delta_deg[np.isfinite(delta_deg)]
+
+    if delta_deg.size == 0:
+        raise ValueError("No valid model Figure 3A delta_deg values")
+
+    model_counts, _ = np.histogram(delta_deg, bins=bin_edges)
+    model_props = model_counts.astype(float) / float(delta_deg.size)
+
+    # ------------------------------------------------------------------
+    # Style / geometry
+    # ------------------------------------------------------------------
+    FIGSIZE = (6.6, 5.2)
+    LABELSIZE = 18
+    TICKSIZE = 14
+    LEGENDSIZE = 12
+    TICKLEN = 5
+    TICKWIDTH = 1.3
+
+    # Keep ticks at bin edges.
+    # Each bin contains a centered bar-pair:
+    #   experimental bar ends at bin center
+    #   model bar starts at bin center
+    # The pair is narrower than the full bin, so there is a gap
+    # between neighboring bin-pairs.
+    bin_edges = np.asarray(bin_edges, dtype=float)
+    bin_centers = np.asarray(bin_centers, dtype=float)
+    bin_widths = np.diff(bin_edges)
+
+    PAIR_WIDTH_FRAC = 0.85  # fraction of each bin occupied by the 2-bar pair
+    pair_width = bin_widths * PAIR_WIDTH_FRAC
+    bar_width = pair_width / 2.0
+
+    # Left edges of the two bars in each bin
+    article_left = bin_centers - bar_width
+    model_left = bin_centers
+
+    fig, ax = plt.subplots(figsize=FIGSIZE)
+
+    # Experimental: left bar, touching the bin center
+    ax.bar(
+        article_left,
+        article_props,
+        width=bar_width,
+        color=ARTICLE_COLOR,
+        edgecolor=ARTICLE_COLOR,
+        linewidth=1.2,
+        label="Experimental",
+        align="edge",
+    )
+
+    # Model: right bar, touching the bin center
+    ax.bar(
+        model_left,
+        model_props,
+        width=bar_width,
+        color=MODEL_COLOR,
+        edgecolor=MODEL_COLOR,
+        linewidth=1.2,
+        label="Model",
+        align="edge",
+    )
+
+    ax.set_xlabel("Difference in optimal orientation (deg)", fontsize=LABELSIZE)
+    ax.set_ylabel("Proportion of neurons", fontsize=LABELSIZE)
+
+    ax.set_xlim(0, 90)
+    ax.set_xticks(bin_edges)
+    ax.set_ylim(*COMMON_YLIM_3A)
+    ax.margins(x=0.01)
+
+    _style_axis(ax)
+    ax.tick_params(
+        axis="both",
+        which="both",
+        labelsize=TICKSIZE,
+        length=TICKLEN,
+        width=TICKWIDTH,
+    )
+
+    ax.legend(
+        loc="upper right",
+        frameon=False,
+        fontsize=LEGENDSIZE,
+        handlelength=1.4,
+        handletextpad=0.5,
+        labelspacing=0.35,
+        borderpad=0.2,
+    )
+
+    fig.tight_layout()
+
+    save_path = os.path.join(out_path, filename)
+    fig.savefig(save_path, dpi=300, bbox_inches="tight")
+    plt.close(fig)
+
+    return save_path
+
+def fold_scraped_figure_3A_direction_to_orientation(
+    scraped_orientation_tuning_data,
+    *,
+    renormalize=True,
+):
+    """
+    Fold scraped Cavanaugh Figure 3A direction-difference histogram
+    from 0..180 deg into orientation-difference space 0..90 deg.
+
+    Original bins:
+        0-30, 30-60, 60-90, 90-120, 120-150, 150-180
+
+    Folded bins:
+        0-30   = old 0-30   + old 150-180
+        30-60  = old 30-60  + old 120-150
+        60-90  = old 60-90  + old 90-120
+    """
+    if scraped_orientation_tuning_data is None:
+        raise ValueError("Missing scraped orientation tuning data")
+
+    panel = scraped_orientation_tuning_data.get("difference_in_optimal_direction", None)
+    if panel is None:
+        raise ValueError("Missing scraped Figure 3A data: difference_in_optimal_direction")
+
+    bins_deg_pairs = panel["bins_deg"]
+    props = np.asarray(panel["proportions"], dtype=float)
+
+    expected_bins = [
+        (0, 30),
+        (30, 60),
+        (60, 90),
+        (90, 120),
+        (120, 150),
+        (150, 180),
+    ]
+
+    if list(bins_deg_pairs) != expected_bins:
+        raise ValueError(
+            "Unexpected scraped Figure 3A bin geometry. "
+            f"Got {bins_deg_pairs}, expected {expected_bins}"
+        )
+
+    if props.shape != (6,):
+        raise ValueError(f"Expected 6 scraped Figure 3A proportions, got {props.shape}")
+
+    folded_props = np.array(
+        [
+            props[0] + props[5],
+            props[1] + props[4],
+            props[2] + props[3],
+        ],
+        dtype=float,
+    )
+
+    if renormalize:
+        total = float(np.nansum(folded_props))
+        if np.isfinite(total) and total > 0:
+            folded_props = folded_props / total
+
+    folded_bin_edges = np.array([0.0, 30.0, 60.0, 90.0], dtype=float)
+    folded_bin_centers = 0.5 * (folded_bin_edges[:-1] + folded_bin_edges[1:])
+
+    return {
+        "bin_edges": folded_bin_edges,
+        "bin_centers": folded_bin_centers,
+        "proportions": folded_props,
+    }
+
 
 def plot_orientation_tuning_figure_3B(
     fig3_data,
@@ -1181,6 +1961,284 @@ def plot_orientation_tuning_figure_3B(
     save_path = os.path.join(out_path, filename)
     fig.savefig(save_path, dpi=300, bbox_inches="tight")
     plt.close(fig)
+    return save_path
+
+
+def plot_orientation_tuning_figure_3B_model_article_overlay(
+    fig3_data,
+    scraped_orientation_tuning_data,
+    out_path="/project/results/selectivity_and_spatial_distribution/orientation_tuning_figure_3",
+    filename="orientation_tuning_figure_3B_model_article_overlay.png",
+):
+    """
+    Joint Figure 3B:
+    center orientation selectivity index vs surround suppression selectivity index.
+
+    Adds marginal histograms:
+        - top: center SI
+        - right: surround SI
+
+    Histograms are plotted as proportions, not raw counts.
+    """
+    ensure_dir(out_path)
+
+    # ------------------------------------------------------------------
+    # Model data
+    # ------------------------------------------------------------------
+    model_center_si = np.asarray(fig3_data["center_si"], dtype=float)
+    model_surround_si = np.asarray(fig3_data["surround_si"], dtype=float)
+
+    model_valid = np.isfinite(model_center_si) & np.isfinite(model_surround_si)
+    model_center_si = model_center_si[model_valid]
+    model_surround_si = model_surround_si[model_valid]
+
+    if model_center_si.size == 0:
+        raise ValueError("No valid model Figure 3B SI values")
+
+    # ------------------------------------------------------------------
+    # Article data
+    # ------------------------------------------------------------------
+    if scraped_orientation_tuning_data is None:
+        raise ValueError("Missing scraped orientation tuning data")
+
+    panel = scraped_orientation_tuning_data.get("figure_3_panel_B_data", None)
+    if panel is None:
+        raise ValueError("Missing scraped Figure 3B data: figure_3_panel_B_data")
+
+    points = panel.get("points", None)
+    if points is None:
+        raise ValueError("Missing scraped Figure 3B points")
+
+    article_center_si = np.asarray(
+        points["center_selectivity_index"],
+        dtype=float,
+    )
+    article_surround_si = np.asarray(
+        points["surround_selectivity_index"],
+        dtype=float,
+    )
+
+    if article_center_si.shape != article_surround_si.shape:
+        raise ValueError("Scraped Figure 3B center/surround SI length mismatch")
+
+    article_valid = np.isfinite(article_center_si) & np.isfinite(article_surround_si)
+    article_center_si = article_center_si[article_valid]
+    article_surround_si = article_surround_si[article_valid]
+
+    if article_center_si.size == 0:
+        raise ValueError("No valid article Figure 3B SI values")
+
+    # ------------------------------------------------------------------
+    # Histogram geometry
+    # ------------------------------------------------------------------
+    bin_edges = np.linspace(0.0, 1.0, 11)   # 10 bins
+    bin_centers = 0.5 * (bin_edges[:-1] + bin_edges[1:])
+    bin_width = bin_edges[1] - bin_edges[0]
+
+    # slightly smaller bars, side by side
+    bar_width = 0.038
+    bar_offset = 0.022
+
+    # proportions, not counts
+    article_center_hist, _ = np.histogram(article_center_si, bins=bin_edges)
+    article_surround_hist, _ = np.histogram(article_surround_si, bins=bin_edges)
+
+    model_center_hist, _ = np.histogram(model_center_si, bins=bin_edges)
+    model_surround_hist, _ = np.histogram(model_surround_si, bins=bin_edges)
+
+    article_center_hist = article_center_hist.astype(float) / float(article_center_si.size)
+    article_surround_hist = article_surround_hist.astype(float) / float(article_surround_si.size)
+
+    model_center_hist = model_center_hist.astype(float) / float(model_center_si.size)
+    model_surround_hist = model_surround_hist.astype(float) / float(model_surround_si.size)
+
+    # ------------------------------------------------------------------
+    # Style
+    # ------------------------------------------------------------------
+    FIGSIZE = (7.2, 7.0)
+
+    LABELSIZE = 14
+    TICKSIZE = 12
+    LEGENDSIZE = 10
+
+    TICKLEN = 5
+    TICKWIDTH = 1.3
+    ARTICLE_SIZE = 20
+    MODEL_SIZE = 15
+
+    DIAG_LW = 1.1
+
+    # ------------------------------------------------------------------
+    # Layout
+    # ------------------------------------------------------------------
+    fig = plt.figure(figsize=FIGSIZE)
+    gs = fig.add_gridspec(
+        2, 2,
+        width_ratios=[4.6, 1.5],
+        height_ratios=[1.5, 4.6],
+        wspace=0.11,
+        hspace=0.11,
+    )
+
+    ax_histx = fig.add_subplot(gs[0, 0])
+    ax_scatter = fig.add_subplot(gs[1, 0])
+    ax_histy = fig.add_subplot(gs[1, 1], sharey=ax_scatter)
+
+    # ------------------------------------------------------------------
+    # Main scatter
+    # ------------------------------------------------------------------
+    ax_scatter.scatter(
+        article_center_si,
+        article_surround_si,
+        s=ARTICLE_SIZE,
+        facecolors=ARTICLE_COLOR,
+        edgecolors=WHITE,
+        linewidths=0.6,
+        alpha=1,
+        marker="o",
+        label="Experimental",
+        zorder=3,
+    )
+
+    ax_scatter.scatter(
+        model_center_si,
+        model_surround_si,
+        s=MODEL_SIZE,
+        facecolors=MODEL_COLOR,
+        edgecolors=BLACK,
+        linewidths=0.4,
+        alpha=0.9,
+        marker="o",
+        label="Model",
+        zorder=2,
+    )
+
+    ax_scatter.plot(
+        [0.0, 1.0],
+        [0.0, 1.0],
+        linestyle="--",
+        color=DARK,
+        linewidth=DIAG_LW,
+        zorder=1,
+    )
+
+    ax_scatter.set_xlim(0.0, 1.0)
+    ax_scatter.set_ylim(0.0, 1.0)
+
+    ax_scatter.set_xlabel("Center selectivity index", fontsize=LABELSIZE)
+    ax_scatter.set_ylabel("Surround selectivity index", fontsize=LABELSIZE)
+
+    ax_scatter.set_xticks([0.0, 0.5, 1.0])
+    ax_scatter.set_yticks([0.0, 0.5, 1.0])
+
+    ax_scatter.legend(
+        loc="upper left",
+        frameon=False,
+        fontsize=LEGENDSIZE,
+        handletextpad=0.4,
+        labelspacing=0.35,
+        borderpad=0.2,
+    )
+
+    _style_axis(ax_scatter)
+    ax_scatter.tick_params(
+        axis="both",
+        which="both",
+        labelsize=TICKSIZE,
+        length=TICKLEN,
+        width=TICKWIDTH,
+    )
+
+    # ------------------------------------------------------------------
+    # Top histogram (center SI)
+    # ------------------------------------------------------------------
+    ax_histx.bar(
+        bin_centers - bar_offset,
+        article_center_hist,
+        width=bar_width,
+        color=ARTICLE_COLOR,
+        edgecolor=ARTICLE_COLOR,
+        linewidth=0.8,
+        alpha=0.85,
+        align="center",
+    )
+
+    ax_histx.bar(
+        bin_centers + bar_offset,
+        model_center_hist,
+        width=bar_width,
+        color=MODEL_COLOR,
+        edgecolor=MODEL_COLOR,
+        linewidth=0.8,
+        alpha=0.85,
+        align="center",
+    )
+
+    ax_histx.set_xlim(0.0, 1.0)
+    ax_histx.set_xticks([0.0, 0.5, 1.0])
+    ax_histx.tick_params(
+        axis="x",
+        labelbottom=False,
+        length=TICKLEN,
+        width=TICKWIDTH,
+    )
+    ax_histx.tick_params(
+        axis="y",
+        labelsize=TICKSIZE,
+        length=TICKLEN,
+        width=TICKWIDTH,
+    )
+    ax_histx.set_ylabel("Prop.", fontsize=TICKSIZE)
+    _style_axis(ax_histx)
+
+    # ------------------------------------------------------------------
+    # Right histogram (surround SI)
+    # ------------------------------------------------------------------
+    ax_histy.barh(
+        bin_centers - bar_offset,
+        article_surround_hist,
+        height=bar_width,
+        color=ARTICLE_COLOR,
+        edgecolor=ARTICLE_COLOR,
+        linewidth=0.8,
+        alpha=0.85,
+        align="center",
+    )
+
+    ax_histy.barh(
+        bin_centers + bar_offset,
+        model_surround_hist,
+        height=bar_width,
+        color=MODEL_COLOR,
+        edgecolor=MODEL_COLOR,
+        linewidth=0.8,
+        alpha=0.85,
+        align="center",
+    )
+
+    ax_histy.set_ylim(0.0, 1.0)
+    ax_histy.set_yticks([0.0, 0.5, 1.0])
+    ax_histy.tick_params(
+        axis="y",
+        labelleft=False,
+        length=TICKLEN,
+        width=TICKWIDTH,
+    )
+    ax_histy.tick_params(
+        axis="x",
+        labelsize=TICKSIZE,
+        length=TICKLEN,
+        width=TICKWIDTH,
+    )
+    ax_histy.set_xlabel("Prop.", fontsize=TICKSIZE)
+    _style_axis(ax_histy)
+
+    fig.tight_layout()
+
+    save_path = os.path.join(out_path, filename)
+    fig.savefig(save_path, dpi=300, bbox_inches="tight")
+    plt.close(fig)
+
     return save_path
 
 
@@ -1290,6 +2348,241 @@ def plot_orientation_tuning_figure_3D(
     fig.savefig(save_path, dpi=300, bbox_inches="tight")
     plt.close(fig)
     return save_path
+
+def plot_orientation_tuning_figure_3D_model_article_overlay(
+    fig3_data,
+    scraped_orientation_tuning_data,
+    out_path="/project/results/selectivity_and_spatial_distribution/orientation_tuning_figure_3",
+    filename="orientation_tuning_figure_3D_model_article_overlay.png",
+    *,
+    show_model_sem=True,
+    close_endpoint=True,
+):
+    """
+    Overlay model Figure 3D population curve with folded article Figure 3D mean curve.
+
+    Model input:
+        output of compute_orientation_figure_3_data(...)
+
+    Article input:
+        cavanaugh2002_surround_selectivity_scraped_data
+    """
+    ensure_dir(out_path)
+
+    # ------------------------------------------------------------------
+    # Model data
+    # ------------------------------------------------------------------
+    rel_axis_deg = np.asarray(fig3_data["rel_axis_deg"], dtype=float)
+    mean_center_norm = np.asarray(fig3_data["mean_center_norm"], dtype=float)
+    mean_compound_norm = np.asarray(fig3_data["mean_compound_norm"], dtype=float)
+
+    sem_center_norm = np.asarray(fig3_data.get("sem_center_norm", []), dtype=float)
+    sem_compound_norm = np.asarray(fig3_data.get("sem_compound_norm", []), dtype=float)
+
+    has_model_sem = (
+        sem_center_norm.shape == mean_center_norm.shape
+        and sem_compound_norm.shape == mean_compound_norm.shape
+    )
+
+    if close_endpoint:
+        if has_model_sem:
+            (
+                rel_axis_deg,
+                mean_center_norm,
+                mean_compound_norm,
+                sem_center_norm,
+                sem_compound_norm,
+            ) = _close_orientation_curve_endpoint(
+                rel_axis_deg,
+                mean_center_norm,
+                mean_compound_norm,
+                sem_center_norm,
+                sem_compound_norm,
+            )
+        else:
+            (
+                rel_axis_deg,
+                mean_center_norm,
+                mean_compound_norm,
+            ) = _close_orientation_curve_endpoint(
+                rel_axis_deg,
+                mean_center_norm,
+                mean_compound_norm,
+            )
+            sem_center_norm = np.asarray([], dtype=float)
+            sem_compound_norm = np.asarray([], dtype=float)
+            has_model_sem = False
+
+    # ------------------------------------------------------------------
+    # Article data
+    # ------------------------------------------------------------------
+    article = build_scraped_figure_3D_orientation_mean(
+        scraped_orientation_tuning_data,
+        normalize=True,
+        close_endpoint=close_endpoint,
+    )
+
+    if article is None:
+        raise ValueError("Missing scraped Figure 3D article data")
+
+    article_ori_deg = article["orientation_deg"]
+    article_center = article["center_response"]
+    article_surround = article["surround_response"]
+
+    # ------------------------------------------------------------------
+    # Style
+    # ------------------------------------------------------------------
+    FIGSIZE = (7.0, 5.2)
+    LABELSIZE = 14
+    TICKSIZE = 12
+    LEGENDSIZE = 10
+
+    TICKLEN = 5
+    TICKWIDTH = 1.3
+
+    ARTICLE_CENTER_MS = 3.8
+    ARTICLE_SURROUND_MS = 4.2
+    MODEL_CENTER_MS = 3.8
+    MODEL_COMPOUND_MS = 4.2
+
+    ARTICLE_LW = 1.8
+    MODEL_CENTER_LW = 1.8
+    MODEL_COMPOUND_LW = 2.4
+    ERR_LW = 1.0
+
+    fig, ax = plt.subplots(figsize=FIGSIZE)
+
+    # ------------------------------------------------------------------
+    # Article curves: background reference
+    # ------------------------------------------------------------------
+    ax.plot(
+        article_ori_deg,
+        article_center,
+        color=ARTICLE_COLOR,
+        linestyle="--",
+        linewidth=ARTICLE_LW,
+        marker="s",
+        markersize=ARTICLE_CENTER_MS,
+        markerfacecolor=ARTICLE_COLOR,
+        markeredgecolor=ARTICLE_COLOR,
+        label="Experimental center alone",
+    )
+
+    ax.plot(
+        article_ori_deg,
+        article_surround,
+        color=ARTICLE_COLOR,
+        linestyle="--",
+        linewidth=ARTICLE_LW,
+        marker="s",
+        markersize=ARTICLE_SURROUND_MS,
+        markerfacecolor=WHITE,
+        markeredgecolor=ARTICLE_COLOR,
+        label="Experimental surround influence",
+    )
+
+    # ------------------------------------------------------------------
+    # Model curves
+    # ------------------------------------------------------------------
+    ax.plot(
+        rel_axis_deg,
+        mean_center_norm,
+        color=MODEL_COLOR,
+        linewidth=MODEL_CENTER_LW,
+        marker="o",
+        markersize=MODEL_CENTER_MS,
+        markerfacecolor=MODEL_COLOR,
+        markeredgecolor=MODEL_COLOR,
+        label="Model center alone",
+    )
+
+    ax.plot(
+        rel_axis_deg,
+        mean_compound_norm,
+        color=MODEL_COLOR,
+        linewidth=MODEL_COMPOUND_LW,
+        marker="o",
+        markersize=MODEL_COMPOUND_MS,
+        markerfacecolor=WHITE,
+        markeredgecolor=MODEL_COLOR,
+        label="Model compound",
+    )
+
+    if show_model_sem and has_model_sem:
+        ax.errorbar(
+            rel_axis_deg,
+            mean_center_norm,
+            yerr=sem_center_norm,
+            fmt="none",
+            ecolor=MODEL_COLOR,
+            elinewidth=ERR_LW,
+            capsize=0,
+            zorder=1,
+        )
+
+        ax.errorbar(
+            rel_axis_deg,
+            mean_compound_norm,
+            yerr=sem_compound_norm,
+            fmt="none",
+            ecolor=MODEL_COLOR,
+            elinewidth=ERR_LW,
+            capsize=0,
+            zorder=1,
+        )
+
+    ax.axhline(
+        1.0,
+        linestyle=":",
+        color=DARK,
+        linewidth=1.0,
+        zorder=0,
+    )
+
+    ax.set_xlabel("Orientation relative to preferred (deg)", fontsize=LABELSIZE)
+    ax.set_ylabel("Relative response", fontsize=LABELSIZE)
+
+    ax.set_xlim(-95, 95)
+    ax.set_xticks([-90, -45, 0, 45, 90])
+
+    y_max = np.nanmax([
+        np.nanmax(mean_center_norm) if mean_center_norm.size else np.nan,
+        np.nanmax(mean_compound_norm) if mean_compound_norm.size else np.nan,
+        np.nanmax(article_center) if article_center.size else np.nan,
+        np.nanmax(article_surround) if article_surround.size else np.nan,
+    ])
+
+    ax.set_ylim(0.0, max(1.1, 1.08 * y_max))
+
+    ax.legend(
+        loc="best",
+        frameon=False,
+        fontsize=LEGENDSIZE,
+        handlelength=2.2,
+        handletextpad=0.5,
+        labelspacing=0.35,
+        borderpad=0.2,
+    )
+
+    _style_axis(ax)
+
+    ax.tick_params(
+        axis="both",
+        which="both",
+        labelsize=TICKSIZE,
+        length=TICKLEN,
+        width=TICKWIDTH,
+    )
+
+    fig.tight_layout()
+
+    save_path = os.path.join(out_path, filename)
+    fig.savefig(save_path, dpi=300, bbox_inches="tight")
+    plt.close(fig)
+
+    return save_path
+
+
 # =============================================================================
 # Figure 4 remake: folded-orientation adaptation of Cavanaugh et al. 2002
 # A-C = single-neuron panels
@@ -2583,372 +3876,6 @@ def run_scraped_orientation_tuning_figure_4_df_population(
         "plot_paths": plot_paths,
     }
 
-def orientation_tuning_results(
-    h5_file,
-    neuron_ids,
-    fit_err_thresh=0.2,
-    supp_thresh=0.1,
-    scraped_orietation_tuning_data=None,
-    out_path="/project/results/selectivity_and_spatial_distribution/population/mean_orientation_tuning_curves",
-    curve_out_path="/project/results/selectivity_and_spatial_distribution/single_neuron/orientation_tuning_curve",
-    figure_1_out_path="/project/results/selectivity_and_spatial_distribution/population/orientation_tuning_overviews",
-    figure_3_out_path="/project/results/selectivity_and_spatial_distribution/population/orientation_tuning_figure_3",
-    figure_4_out_path="/project/results/selectivity_and_spatial_distribution/semi/orientation_tuning_figure_4",
-    plot_tunning_curves=True,
-    plot_histograms=True,
-    plot_fig_1=True,
-    plot_fig_4=True,
-):
-    """
-    Visualise responses of neurons to different center and surround orientations.
-
-    Workflow:
-        1) Filter neurons
-        2) Load orientation-tuning data
-        3) Fold into orientation space
-        4) Plot mean tuning curves
-        5) Optionally save per-neuron tuning curves
-        6) Optionally save Figure 1-style plots
-        7) Optionally save Figure 3 plots
-        8) Optionally save Figure 4 per-neuron inspection plots + population histograms
-
-    Prerequisite:
-        - size_tuning_experiment_all_phases executed for required neurons
-        - orientation_tuning_experiment_all_phases executed for required neurons
-
-    Filtering:
-        - Exclude neurons with poor Gaussian RF fits
-        - Exclude neurons with no surround suppression / saturation
-        - Exclude neurons without valid GSF / AMRF
-        - Optionally exclude low suppression neurons
-    """
-
-    group_path = "/orientation_tuning"
-
-    # -------------------------------------------------------------------------
-    # Check experiment presence
-    # -------------------------------------------------------------------------
-    check_group_exists_error(h5_file=h5_file, group_path=group_path)
-
-    print(scraped_orietation_tuning_data)
-
-    # -------------------------------------------------------------------------
-    # Filtering
-    # -------------------------------------------------------------------------
-    filtered_neuron_ids = get_selectivity_filtered_neuron_ids(
-        h5_file=h5_file,
-        neuron_ids=neuron_ids,
-        fit_err_thresh=fit_err_thresh,
-        supp_thresh=supp_thresh,
-        apply_fit_error_filter=True,
-        apply_no_supp_filter=True,
-        apply_low_supp_filter=True,
-        apply_valid_gsf_amrf_filter=True,
-        verbose=False,
-    )
-
-    check_neurons_presence_error(
-        h5_file=h5_file,
-        list_group_path=[
-            group_path + "/curves_center",
-            group_path + "/curves_surround_only",
-            group_path + "/curves_center_surround",
-        ],
-        neuron_ids=filtered_neuron_ids,
-    )
-
-    n = len(neuron_ids)
-    n_new = len(filtered_neuron_ids)
-
-    # -------------------------------------------------------------------------
-    # Load once, then fold once
-    # -------------------------------------------------------------------------
-    loaded = load_orientation_tuning_bulk(
-        h5_file=h5_file,
-        neuron_ids=filtered_neuron_ids,
-        strict=False,
-    )
-
-    present_ids = np.asarray(loaded["present_ids"], dtype=int)
-    missing_ids = np.asarray(loaded["missing_ids"], dtype=int)
-    by_id = loaded["by_id"]
-    ori_shifts_rad = np.asarray(loaded["ori_shifts_rad"], dtype=float)
-    ori_shifts_deg = np.asarray(loaded["ori_shifts_deg"], dtype=float)
-
-    n_loaded = len(present_ids)
-
-    print("--------------------------------------")
-    print("Visualisation of orientation tuning curves:")
-    print(f"    > Analysis made on {n} neurons")
-    if n > 0:
-        print(f"    > {n_new} neurons ({round((n_new / n * 100), 2)}%) left after filtration")
-    else:
-        print("    > 0 neurons left after filtration")
-    print(f"    > {n_loaded} neurons successfully loaded")
-    if len(missing_ids) > 0:
-        print(f"    > {len(missing_ids)} neurons were missing or malformed in orientation tuning datasets")
-    print()
-    print("    > The mean curves across every neuron:")
-
-    if n_loaded == 0:
-        print()
-        print("    > No neurons available for plotting.")
-        print("--------------------------------------")
-        print()
-        return {
-            "filtered_neuron_ids": np.asarray(filtered_neuron_ids, dtype=int),
-            "loaded_neuron_ids": np.asarray([], dtype=int),
-            "missing_neuron_ids": np.asarray(missing_ids, dtype=int),
-            "mean_plot_path": None,
-            "curve_plot_paths": [],
-            "figure_1_plot_paths": {"overview": [], "matrix": []},
-            "hist_plot_path": None,
-            "figure_3_plot_paths": {},
-            "figure_4_plot_paths": {
-                "per_neuron": [],
-                "population_histograms": None,
-                "summary": [],
-            },
-        }
-
-    # -------------------------------------------------------------------------
-    # Build stacked arrays for mean plots
-    # -------------------------------------------------------------------------
-    curves_center = np.asarray(
-        [by_id[int(neuron_id)]["center"] for neuron_id in present_ids],
-        dtype=float,
-    )
-    curves_surround = np.asarray(
-        [by_id[int(neuron_id)]["surround_fixed_center"] for neuron_id in present_ids],
-        dtype=float,
-    )
-    
-    def _normalize_curves_by_row_max(curves, *, ref_curves=None):
-        """
-        Normalize each row by its own maximum, or by the maximum of ref_curves
-        if provided. Returns NaN for rows with invalid / non-positive scale.
-        """
-        curves = np.asarray(curves, dtype=float)
-
-        if ref_curves is None:
-            ref_curves = curves
-        else:
-            ref_curves = np.asarray(ref_curves, dtype=float)
-
-        scale = np.max(ref_curves, axis=1, keepdims=True)
-        valid = np.isfinite(scale) & (scale > 0)
-        scale = np.where(valid, scale, np.nan)
-
-        return curves / scale
-    
-    curves_center_norm = _normalize_curves_by_row_max(curves_center)
-    curves_surround_norm = _normalize_curves_by_row_max(curves_surround, ref_curves=curves_center)
-
-    mean_curve_center = np.nanmean(curves_center_norm, axis=0)
-    mean_curve_surround = np.nanmean(curves_surround_norm, axis=0)
-
-
-    mean_plot_path = plot_mean_orientation_tuning(
-        ori_shifts_deg=ori_shifts_deg,
-        mean_curve_center=mean_curve_center,
-        mean_curve_surround=mean_curve_surround,
-        out_path=out_path,
-    )
-
-    # -------------------------------------------------------------------------
-    # Per-neuron simple tuning curves
-    # -------------------------------------------------------------------------
-    curve_plot_paths = []
-    scraped_curve_plot_paths = []
-
-    if plot_tunning_curves:
-        print()
-        print("    > Saving simple orientation tuning curves for all loaded neurons:")
-
-        for neuron_id in present_ids:
-            save_path = plot_orientation_tuning_curve(
-                neuron_id=int(neuron_id),
-                neuron_data=by_id[int(neuron_id)],
-                ori_shifts_deg=ori_shifts_deg,
-                out_path=curve_out_path,
-            )
-            curve_plot_paths.append(save_path)
-
-        print(f"    > Saved {len(curve_plot_paths)} simple per-neuron plots")
-
-    # -------------------------------------------------------------------------
-    # Figure 1
-    # -------------------------------------------------------------------------
-    overview_plot_paths = []
-    figure_1_matrix_plot_paths = []
-
-    if plot_fig_1:
-        print()
-        print("    > Saving Figure 1 overview plots for all loaded neurons:")
-
-        figure_1_overview_out_path = os.path.join(figure_1_out_path, "overview_style")
-        for neuron_id in present_ids:
-            save_path = plot_orientation_overview_figure(
-                neuron_id=int(neuron_id),
-                neuron_data=by_id[int(neuron_id)],
-                ori_shifts_deg=ori_shifts_deg,
-                out_path=figure_1_overview_out_path,
-            )
-            overview_plot_paths.append(save_path)
-
-        print(f"    > Saved {len(overview_plot_paths)} Figure 1 overview plots")
-
-        print()
-        print("    > Saving paper-style Figure 1 matrix plots:")
-
-        figure_1_matrix_out_path = os.path.join(figure_1_out_path, "matrix_style")
-        for neuron_id in present_ids:
-            save_path = plot_orientation_tuning_figure_1_matrix(
-                neuron_id=int(neuron_id),
-                neuron_data=by_id[int(neuron_id)],
-                ori_shifts_deg=ori_shifts_deg,
-                out_path=figure_1_matrix_out_path,
-            )
-            figure_1_matrix_plot_paths.append(save_path)
-
-        print(f"    > Saved {len(figure_1_matrix_plot_paths)} paper-style Figure 1 matrix plots")
-
-
-     # -------------------------------------------------------------------------
-    # Scraped article examples: article-style only
-    # -------------------------------------------------------------------------
-    if scraped_orietation_tuning_data is not None:
-        print()
-        print("    > Saving scraped article-style orientation tuning examples:")
-
-        scraped_examples = build_scraped_orientation_examples(scraped_orietation_tuning_data)
-
-        if scraped_examples is None or len(scraped_examples["labels"]) == 0:
-            print("    > No scraped orientation examples found")
-        else:
-            scraped_out_path = os.path.join(curve_out_path, "scraped_article_style")
-
-            for label in scraped_examples["labels"]:
-                save_path = plot_scraped_article_orientation_example(
-                    label=label,
-                    scraped_neuron_data=scraped_examples["by_label"][label],
-                    out_path=scraped_out_path,
-                )
-                scraped_curve_plot_paths.append(save_path)
-
-            print(f"    > Saved {len(scraped_curve_plot_paths)} scraped article-style example plots")
-
-
-    # -------------------------------------------------------------------------
-    # Histograms + Figure 3
-    # -------------------------------------------------------------------------
-    hist_path = None
-    figure_3_plot_paths = {}
-    scraped_figure_3A_path = None
-    scraped_figure_3B_path = None
-    scraped_figure_3D_path = None
-
-    if plot_histograms:
-        suppress_data = compute_most_suppressive_surround(
-            loaded_orientation=loaded,
-            center_angles_rad=(-np.pi / 4.0, 0.0, np.pi / 4.0),
-            min_center_response_frac=0.10,
-            use_nearest_sampled=True,
-        )
-
-        hist_path = plot_most_suppressive_surround_histograms(
-            suppress_data,
-            loaded["ori_shifts_rad"],
-            out_path="/project/results/selectivity_and_spatial_distribution/orientation_tuning_histograms",
-        )
-
-        print()
-        print("    > Saving adapted Figure 3 panels:")
-
-        fig3_data = compute_orientation_figure_3_data(loaded)
-
-        figure_3_plot_paths = plot_orientation_tuning_figure_3_all(
-            fig3_data,
-            out_path=figure_3_out_path,
-            prefix="orientation_tuning_figure_3",
-        )
-
-        print(f"    > Saved Figure 3A plot to {figure_3_plot_paths['A']}")
-        print(f"    > Saved Figure 3B plot to {figure_3_plot_paths['B']}")
-        print(f"    > Saved Figure 3D plot to {figure_3_plot_paths['D']}")
-
-        if scraped_orietation_tuning_data is not None:
-            scraped_out_path = os.path.join(figure_3_out_path, "scraped")
-
-            scraped_figure_3A_path = plot_scraped_orientation_figure_3A(
-                scraped_orietation_tuning_data,
-                out_path=scraped_out_path,
-                filename="orientation_tuning_figure_3A_scraped.png",
-            )
-            if scraped_figure_3A_path is not None:
-                print(f"    > Saved scraped Figure 3A plot to {scraped_figure_3A_path}")
-
-            scraped_figure_3B_path = plot_scraped_orientation_figure_3B(
-                scraped_orietation_tuning_data,
-                out_path=scraped_out_path,
-                filename="orientation_tuning_figure_3B_scraped.png",
-            )
-            if scraped_figure_3B_path is not None:
-                print(f"    > Saved scraped Figure 3B plot to {scraped_figure_3B_path}")
-
-            scraped_figure_3D_path = plot_scraped_orientation_figure_3D(
-                scraped_orietation_tuning_data,
-                out_path=scraped_out_path,
-                filename="orientation_tuning_figure_3D_scraped.png",
-            )
-            if scraped_figure_3D_path is not None:
-                print(f"    > Saved scraped Figure 3D plot to {scraped_figure_3D_path}")
-
-
-    # -------------------------------------------------------------------------
-    # Figure 4
-    # -------------------------------------------------------------------------
-    figure_4_plot_paths = {}
-
-    if plot_fig_4:
-        print()
-        print("    > Preparing adapted Figure 4 data:")
-
-        fig4_result = run_orientation_tuning_figure_4(
-            h5_file=h5_file,
-            neuron_ids=filtered_neuron_ids,
-            out_path=figure_4_out_path,
-            mode="separate",   # or "combined"
-            example_neuron_id=None,
-            center_angles_rad=(-np.pi / 4.0, 0.0, np.pi / 4.0),
-            min_center_response_frac=0.10,
-            print_summary=True,
-        )
-
-        figure_4_plot_paths = fig4_result["plot_paths"]
-
-        print(f"    > Saved Figure 4 outputs to {figure_4_out_path}")
-
-        fig4_scraped_result = run_scraped_orientation_tuning_figure_4_df_population(
-        fig4_df_population_data=scraped_orietation_tuning_data["figure_4_df_population_data"],
-        out_path="/project/results/selectivity_and_spatial_distribution/scraped_figure_4_population",
-        mode="separate",   # or "combined"
-)
-
-    return {
-        "filtered_neuron_ids": np.asarray(filtered_neuron_ids, dtype=int),
-        "loaded_neuron_ids": np.asarray(present_ids, dtype=int),
-        "missing_neuron_ids": np.asarray(missing_ids, dtype=int),
-        "mean_plot_path": mean_plot_path,
-        "curve_plot_paths": curve_plot_paths,
-        "figure_1_plot_paths": {
-            "overview": overview_plot_paths,
-            "matrix": figure_1_matrix_plot_paths,
-        },
-        "hist_plot_path": hist_path,
-        "figure_3_plot_paths": figure_3_plot_paths,
-        "figure_4_plot_paths": figure_4_plot_paths,
-    }
 
 def plot_scraped_orientation_figure_3B(
     scraped_orientation_tuning_data,

@@ -31,13 +31,15 @@ from classical_exps.core.simulations.freeman2013_naturalistic_texture_modulation
 
 
 from classical_exps.core.simulations.freeman2013_naturalistic_texture_modulation.analysis.plotters import (
-    plot_family_modulation_index_comparison,
     plot_neuron_mi_distribution_comparison,
     plot_texture_noise_ratio_comparison,
     plot_texture_modulation_sign_summary,
     plot_family_modulation_significance_comparison
 )
 
+
+ARTICLE_COLOR = "black"
+MODEL_COLOR = "#2F5D8C"
 
 
 
@@ -490,22 +492,6 @@ def texture_noise_response_results_2(
         # stay in their native article order.
 
     # ------------------------------------------------------------------
-    # Main family modulation figure
-    # ------------------------------------------------------------------
-    plot_family_modulation_index_comparison(
-        family_ids=family_ids,
-        model_mean_mi_family=mean_mi_family,
-        model_yerr=sem_mi_family,
-        model_n=n_neuron,
-        save_path=os.path.join(directory, "average_modulation_index.svg"),
-        scraped_mean_mi_family=scraped_mean_mi_family,
-        scraped_yerr=scraped_yerr,
-        scraped_n=scraped_n,
-        scraped_label="Experimental",
-        show_significance=True,
-    )
-
-    # ------------------------------------------------------------------
     # Dedicated family-wise significance comparison
     # ------------------------------------------------------------------
     if scraped_texture_noise_config is not None:
@@ -657,8 +643,6 @@ def texture_noise_response_results_3(
     plt.savefig(directory + "distribution_of_modulation_index.svg", dpi=180, bbox_inches="tight")
     plt.close()
 
-    print(f"    > Mean neuron MI: {meanval:.4f}")
-    print("--------------------------------------")
 
     plot_neuron_mi_distribution_comparison(
         model_mean_mi_neuron=mean_mi_neuron,
@@ -677,3 +661,6 @@ def texture_noise_response_results_3(
             model_label="Model",
             article_label="Experimental V1",
         )
+
+        print(f"    > Mean MI across families: {np.mean(meanval):.4f}")
+        print(f"    > Family MI/significance plot saved to: {directory}average_modulation_index.svg")

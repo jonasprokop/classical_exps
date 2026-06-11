@@ -90,7 +90,7 @@ bs = 40
 # =============================================================================
 
 # Model field is bounded at 2.67 deg; radii cover the effective tested annulus range.
-radii = np.logspace(np.log10(0.15), np.log10(1.89), 8)
+radii = np.logspace(np.log10(0.15), np.log10(2.67), 8)
 
 center_contrasts = np.logspace(np.log10(0.06), np.log10(1), 18)
 surround_contrasts = np.logspace(np.log10(0.06), np.log10(1), 6)

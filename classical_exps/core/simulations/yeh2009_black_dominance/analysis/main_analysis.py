@@ -53,6 +53,18 @@ from classical_exps.core.simulations.yeh2009_black_dominance.analysis.plotters i
 #####              DOI : https://doi.org/10.1523/JNEUROSCI.1991-09.2009       #####
 ###################################################################################
 
+
+
+BLACK = "black"
+DARK = "0.20"
+MID = "0.45"
+LIGHT = "0.85"
+WHITE = "white"
+
+ARTICLE_COLOR = BLACK
+MODEL_COLOR = "#2F5D8C"
+
+
 def black_white_results_1(
     h5_file,
     neuron_ids,
@@ -175,16 +187,16 @@ def black_white_results_1(
         if "histogram" in scraped_snr_config:
             plot_black_white_histogram_dataset(
                 scraped_hist_dataset,
-                save_path=os.path.join(scraped_dir, "log_ratio_histogram_yeh_all_layers.png"),
+                save_path=os.path.join(scraped_dir, "log_ratio_histogram_yeh_all_layers.svg"),
                 title="Yeh experiment black/white bias",
                 use_percent=False,
             )
 
             plot_black_white_histogram_comparison(
                 [model_hist_dataset, scraped_hist_dataset],
-                save_path=os.path.join(comparison_dir, "hist_model_vs_yeh_all_layers.png"),
+                save_path=os.path.join(comparison_dir, "hist_model_vs_yeh_all_layers.svg"),
                 title="Black/white bias: model vs Yeh experiment",
-                use_percent=True,
+                use_proportion=True,
             )
 
         if "scatter" in scraped_snr_config:
@@ -197,19 +209,19 @@ def black_white_results_1(
 
             plot_black_white_scatter_dataset(
                 scraped_scatter_dataset,
-                save_path=os.path.join(scraped_dir, "scatter_yeh_all_layers.png"),
+                save_path=os.path.join(scraped_dir, "scatter_yeh_all_layers.svg"),
                 title="Yeh experiment black/white SNR scatter",
                 scale_model=False,
             )
 
             plot_black_white_scatter_comparison_panel(
                 [model_scatter_dataset, scraped_scatter_dataset],
-                save_path=os.path.join(comparison_dir, "scatter_model_vs_yeh_panel.png"),
+                save_path=os.path.join(comparison_dir, "scatter_model_vs_yeh_panel.svg"),
             )
 
             plot_black_white_scatter_comparison_overlay(
                 [model_scatter_dataset, scraped_scatter_dataset],
-                save_path=os.path.join(comparison_dir, "scatter_model_vs_yeh_overlay.png"),
+                save_path=os.path.join(comparison_dir, "scatter_model_vs_yeh_overlay.svg"),
             )
 
     print(f"    > Model summary plots saved to: {summary_dir}")

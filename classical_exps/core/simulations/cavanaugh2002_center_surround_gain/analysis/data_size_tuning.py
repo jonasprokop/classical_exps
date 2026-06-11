@@ -26,6 +26,8 @@ import pandas as pd
 import os
 import openpyxl
 from matplotlib.ticker import ScalarFormatter
+
+
 def load_size_tuning_results_bulk(
     h5_file: str,
     neuron_ids,

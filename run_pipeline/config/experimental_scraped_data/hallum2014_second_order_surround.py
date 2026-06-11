@@ -14,12 +14,6 @@ hallum2014_second_order_surround_scraped_data = {
             0.2549,
         ],
 
-        "wrapped_proportion_of_cells_evaluated": [
-            0.4098,
-            0.2706,
-            0.3039,
-            0.2549,
-        ],
 
         "notes": [
             "The -90 and +90 deg bins represent the same orientation class in 180-deg orientation space.",

@@ -577,6 +577,7 @@ def get_preferred_position(
     bs = 40,
     seed = 0,
     plot = True,
+    size = 2.67,
 ):
     ''' This function performs multiple things :
         1) Multiple verifications to see if the group "perferred_pos" exists in the file and if so, check if the parameters are compatible
